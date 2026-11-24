@@ -1,4 +1,4 @@
-//go:build !windows && !darwin && !(linux && !android && (amd64 || arm64)) && !js && !android
+//go:build !windows && !darwin && !(linux && !android && (amd64 || arm64)) && !js && !android && !openharmony
 
 package ui
 

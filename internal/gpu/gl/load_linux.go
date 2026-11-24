@@ -1,4 +1,4 @@
-//go:build linux && !android && (amd64 || arm64) && !android
+//go:build linux && !android && (amd64 || arm64) && !android && !openharmony
 
 package gl
 
