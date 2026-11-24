@@ -1,3 +1,5 @@
+//go:build openharmony
+
 package ohos
 
 import (
@@ -62,5 +64,5 @@ func (s *surface) RefreshRate() float64 {
 // has a GPU renderer, so there is nothing to show here.
 func (s *surface) PresentPixels([]byte, int, int, int) {}
 
-func (s *surface) Occluded() bool { return s.occluded }
+func (s *surface) Occluded() bool  { return s.occluded }
 func (s *surface) WideGamut() bool { return false }

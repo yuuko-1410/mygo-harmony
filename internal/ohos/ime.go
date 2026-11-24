@@ -1,3 +1,5 @@
+//go:build openharmony
+
 package ohos
 
 /*
@@ -70,11 +72,11 @@ func mygo_text_input(jsonPtr *C.char) {
 		return
 	}
 	ev := platform.SurfaceEvent{
-		Kind:     platform.TextInput,
-		Text:     in.Text,
-		From:     in.From,
-		To:       in.To,
-		Replace:   in.Composing,
+		Kind:    platform.TextInput,
+		Text:    in.Text,
+		From:    in.From,
+		To:      in.To,
+		Replace: in.Composing,
 	}
 	b.push(func() { b.deliver(ev) })
 }

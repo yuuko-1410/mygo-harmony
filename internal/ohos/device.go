@@ -1,8 +1,10 @@
+//go:build openharmony
+
 package ohos
 
 import (
-	"log"
 	"encoding/json"
+	"log"
 	"sync"
 )
 

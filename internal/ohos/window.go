@@ -1,3 +1,5 @@
+//go:build openharmony
+
 package ohos
 
 import (
@@ -10,18 +12,18 @@ type window struct {
 	h platform.WindowHandler
 	s *surface
 
-	title     string
-	id        int
-	bounds    platform.Rect
-	visible   bool
-	focused   bool
-	focusSent bool
+	title       string
+	id          int
+	bounds      platform.Rect
+	visible     bool
+	focused     bool
+	focusSent   bool
 	frameLogged bool
-	resizable bool
-	closed    bool
+	resizable   bool
+	closed      bool
 }
 
-func (w *window) Handle() uintptr          { return w.s.native }
+func (w *window) Handle() uintptr           { return w.s.native }
 func (w *window) Surface() platform.Surface { return w.s }
 
 func (w *window) SetTitle(title string) { w.title = title }

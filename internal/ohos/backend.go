@@ -1,3 +1,5 @@
+//go:build openharmony
+
 // Package ohos is MyGo's OpenHarmony (HarmonyOS) backend: a HarmonyOS app's
 // native module makes an XComponent, hands its OHNativeWindow to Go through
 // the C API in api.go, and this package runs MyGo's loop on that window,
@@ -8,8 +10,8 @@
 package ohos
 
 import (
-	"log"
 	"errors"
+	"log"
 	"sync"
 	"time"
 
@@ -147,12 +149,12 @@ func (b *backend) push(f func()) {
 
 func (b *backend) NewWindow(opts *platform.WindowOptions, h platform.WindowHandler) (platform.Window, error) {
 	w := &window{
-		b:       b,
-		h:       h,
-		title:   opts.Title,
-		visible: true,
-		focused: true,
-		bounds: platform.Rect{X: opts.X, Y: opts.Y, Width: opts.Width, Height: opts.Height},
+		b:         b,
+		h:         h,
+		title:     opts.Title,
+		visible:   true,
+		focused:   true,
+		bounds:    platform.Rect{X: opts.X, Y: opts.Y, Width: opts.Width, Height: opts.Height},
 		resizable: true,
 	}
 	w.s = &surface{w: w, refresh: float64(time.Second) / float64(frameInterval())}

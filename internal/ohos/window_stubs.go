@@ -1,3 +1,5 @@
+//go:build openharmony
+
 // Code generated from internal/platform/platform.go for Window -- do not edit by hand.
 
 package ohos
@@ -252,4 +254,3 @@ func (w *window) WebViewHandle() uintptr {
 func (w *window) Zoom() float64 {
 	return 0
 }
-

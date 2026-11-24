@@ -91,25 +91,35 @@ text bug from guesswork into a five-minute fix.
 
 ## Building an app
 
+The tool does it (`cmd/mygo/ohos.go`):
+
 ```sh
-scripts/ohos-app.sh <your-mygo-app> <hap-project> [run|build]
-scripts/ohos-app.sh ~/Documents/MyProjects/mygo-ohos-app ~/Documents/MyProjects/mygo-ohos
+go build -o mygo ./cmd/mygo
+
+mygo ohos doctor            # the Go toolchain, the SDK, devecocli, a device
+mygo ohos build <app dir>   # libapp.a, then the HAP
+mygo ohos run <app dir>     # and install it, and start it
 ```
+
+`-hap` says which HAP project to build; without it the tool takes the one
+next to the app (a directory holding `entry/src/main/cpp/CMakeLists.txt`).
+`-go` and `-sdk` override the toolchain, as `$OHOS_GO` and `$OHOS_SDK` do.
 
 The app is any MyGo program: its own `go.mod` depending on this fork of
 MyGo, a `main()` that calls `mygo.App.Run()`, and nothing OpenHarmony
-specific in it. The script cross-compiles it to `libapp.a`
+specific in it. The tool cross-compiles it to `libapp.a`
 (`-buildmode=c-archive`) and puts it where the HAP's CMake links it.
 
 ## Porting another app
 
 The native shell is the same for every app: NAPI entry, XComponents, the
-IME overlay, the host-call channel, the subwindow page. `scripts/ohos-init.sh`
-copies it and names it:
+IME overlay, the host-call channel, the subwindow page. It ships inside the
+tool (`cmd/mygo/shell`), which writes it out and names it:
 
 ```sh
-scripts/ohos-init.sh ~/apps/notes-ohos com.example.notes Notes
-scripts/ohos-app.sh ~/apps/notes ~/apps/notes-ohos run
+mygo ohos init -hap ~/apps/notes-ohos -bundle com.example.notes -label Notes ~/apps/notes
+cd ~/apps/notes-ohos && devecocli signature generate   # once per bundle
+mygo ohos run ~/apps/notes
 ```
 
 What the shell expects of the app, and of the toolchain:
@@ -119,7 +129,7 @@ What the shell expects of the app, and of the toolchain:
 | MyGo with this backend | the app's `replace`/`require` | `backend_ohos.go` registers `internal/ohos` for `GOOS=openharmony` |
 | Go toolchain | `$OHOS_GO`, default `~/Documents/MyProjects/ohos-go/bin/go` | a Go whose `dist list` has `openharmony/arm64` (see Toolchain) |
 | Native SDK | `$OHOS_SDK`, the DevEco `ohos-sdk-native` cell | clang, sysroot, `llvm-ar` |
-| HAP signing | `devecocli signature generate` once per device | `ohos-app.sh` only calls `devecocli run` |
+| HAP signing | `devecocli signature generate` once per bundle | `mygo ohos run` calls `devecocli run` |
 
 The app's `main()` may use every MyGo API; what differs by platform is
 what `internal/ohos` implements (below). Nothing in the app's code names
@@ -157,8 +167,9 @@ internal/gpu/gl/load_openharmony.go GLES loader
 internal/text/drawing_ohos.go       libnative_drawing bindings (purego)
 internal/text/engine_openharmony.go FontMgr/TextShaper/Path rendering
 ui/gpu_openharmony.go               the GPU renderer for this platform
-scripts/ohos-app.sh                 build + deploy
-scripts/ohos-init.sh                make a HAP project for an app
+cmd/mygo/ohos.go                    mygo ohos: build, run, init, doctor
+cmd/mygo/ohos_init.go               the shell of a HAP, written out
+cmd/mygo/shell/                     that shell: ArkTS pages, NAPI, CMake
 ```
 
 ## Not done yet

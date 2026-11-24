@@ -1,3 +1,5 @@
+//go:build openharmony
+
 package ohos
 
 /*
@@ -664,9 +666,9 @@ func mygo_window_closed(id C.int) {
 // nativeSurface is a surface the host made, waiting for the window it
 // belongs to.
 type nativeSurface struct {
-	native          uintptr
-	width, height   float64
-	scale           float64
+	native        uintptr
+	width, height float64
+	scale         float64
 }
 
 // takeSurfaceByID waits for the surface of the window with the given id,

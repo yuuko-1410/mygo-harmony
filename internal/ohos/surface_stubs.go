@@ -1,3 +1,5 @@
+//go:build openharmony
+
 package ohos
 
 import (
@@ -17,9 +19,6 @@ func (s *surface) SetCursor(platform.Cursor) {}
 
 func (s *surface) SetDropFormats([]transfer.Format) {}
 
-
 func (s *surface) StartDataDrag(platform.DragRequest) {}
 
 func (s *surface) UpdateAccessibility(*platform.AccessTree) {}
-
-
