@@ -8,12 +8,16 @@ import webview from '@ohos.web.webview';
 import vibrator from '@ohos.vibrator';
 import pasteboard from '@ohos.pasteboard';
 import connection from '@ohos.net.connection';
+import preferences from '@ohos.data.preferences';
+import util from '@ohos.util';
+import common from '@ohos.app.ability.common';
 import window from '@ohos.window';
 import { PromptAction } from '@ohos.arkui.UIContext';
 import { BusinessError } from '@ohos.base';
 import { AppInfoReply, BatteryReply, CreateWindowCall, CreateWindowReply, Event, FirstFrameCall,
   LoadHTMLCall, LoadURLCall, MessageBoxCall, RequestFrameCall, ScreenReply, SetBackgroundCall, SetFrameRateCall, SetTextInputCall,
   ClipboardTextReply, EvalCall, GoBackCall, HapticCall, KeepAwakeCall, NetworkStatusReply,
+  SecretDeleteCall, SecretDeleteReply, SecretGetCall, SecretGetReply, SecretSetCall, SecretSetReply,
   SetClipboardTextCall, SetSystemBarsCall, GoForwardCall, ReloadCall, SetTitleCall, SetZoomCall, ShowWindowCall,
   StopLoadingCall, ThemeReply, dispatchCall } from './Wire';
 import { HostStubs } from './HostStubs';
@@ -395,6 +399,87 @@ export class Host extends HostStubs {
       }
     } catch (e) {
       r.online = false;
+    }
+    return r;
+  }
+
+  // The app's secrets, kept in the system's preferences: base64 text, so
+  // that bytes of any kind survive.
+  // The app's own context, which the page hands over: the storage and the
+  // pickers need it.
+  ctx: common.Context | undefined = undefined;
+  private secrets: preferences.Preferences | null = null;
+  private readonly b64: util.Base64Helper = new util.Base64Helper();
+
+  private secretsFile(): preferences.Preferences | null {
+    if (this.secrets !== null) {
+      return this.secrets;
+    }
+    const ctx = this.ctx;
+    if (ctx === undefined) {
+      return null;
+    }
+    try {
+      this.secrets = preferences.getPreferencesSync(ctx, { name: 'mygo-secrets' });
+    } catch (e) {
+      console.error(`mygo: secrets: ${e}`);
+      return null;
+    }
+    return this.secrets;
+  }
+
+  private secretKey(c: SecretGetCall | SecretSetCall | SecretDeleteCall): string {
+    return `${c.service}\u0000${c.account}`;
+  }
+
+  secretGet(c: SecretGetCall): SecretGetReply {
+    const r = new SecretGetReply();
+    const store = this.secretsFile();
+    if (store === null) {
+      r.error = 'no storage';
+      return r;
+    }
+    const text = store.getSync(this.secretKey(c), '') as string;
+    if (text.length === 0) {
+      return r;
+    }
+    try {
+      r.value = this.b64.decodeSync(text);
+      r.found = true;
+    } catch (e) {
+      r.error = `${e}`;
+    }
+    return r;
+  }
+
+  secretSet(c: SecretSetCall): SecretSetReply {
+    const r = new SecretSetReply();
+    const store = this.secretsFile();
+    if (store === null) {
+      r.error = 'no storage';
+      return r;
+    }
+    try {
+      store.putSync(this.secretKey(c), this.b64.encodeToStringSync(c.value));
+      store.flush();
+    } catch (e) {
+      r.error = `${e}`;
+    }
+    return r;
+  }
+
+  secretDelete(c: SecretDeleteCall): SecretDeleteReply {
+    const r = new SecretDeleteReply();
+    const store = this.secretsFile();
+    if (store === null) {
+      r.error = 'no storage';
+      return r;
+    }
+    try {
+      store.deleteSync(this.secretKey(c));
+      store.flush();
+    } catch (e) {
+      r.error = `${e}`;
     }
     return r;
   }

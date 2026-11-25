@@ -38,6 +38,7 @@ struct Index {
     host.scale = d.densityPixels;
     host.prompt = this.getUIContext().getPromptAction();
     host.webController = this.webController;
+    host.ctx = this.getUIContext().getHostContext();
     this.sync.setExpectedFrameRateRange({ expected: 60, min: 60, max: 120 });
     this.sync.on('frame', () => {
       host.tick();
