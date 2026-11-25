@@ -6,8 +6,9 @@
 #   tools/ohos-go/package.sh [tree] [out]
 #
 # tree is the checkout whose src/make.bash ran ($OHOS_GO's GOROOT, by
-# default), out the tarball (go1.27.4-ohos.<host>.tar.gz, by default). The
-# tarball unpacks as "go/", the layout GOROOT wants.
+# default), out the tarball (go1.27.4-ohos-<host>.tar.gz, by default, the way
+# sysit/ohos-go names its releases). The tarball unpacks as "go/", the layout
+# GOROOT wants, with a .sha256 beside it.
 set -eu
 
 TREE=${1:-}
@@ -22,7 +23,7 @@ fi
 
 version=$(cat "$TREE/VERSION")
 host=$("$TREE/bin/go" env GOHOSTOS)-$("$TREE/bin/go" env GOHOSTARCH)
-out=${2:-go${version}.${host}.tar.gz}
+out=${2:-go${version}-${host}.tar.gz}
 
 # src/ travels: a cross-build compiles the standard library on demand, and
 # lib/ holds the time zone database a hermetic build reads.
@@ -32,6 +33,7 @@ tar -czf "$out" \
   VERSION go.env LICENSE PATENTS \
   bin pkg src lib api
 
+sha256sum "$out" > "$out.sha256"
 echo "$out: $(du -h "$out" | cut -f1)"
 echo
 echo "Attach it to a release of your fork of the Go tree. A machine installs it with:"
