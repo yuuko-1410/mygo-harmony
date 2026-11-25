@@ -2,6 +2,7 @@ import native from 'libentry.so';
 import displaySync from '@ohos.graphics.displaySync';
 import display from '@ohos.display';
 import window from '@ohos.window';
+import webview from '@ohos.web.webview';
 import { Host } from '../mygo/Host';
 import { Event } from '../mygo/Wire';
 
@@ -17,6 +18,9 @@ struct Index {
   // Not `background`: that is ArkUI's own attribute, inherited by the
   // struct.
   @State windowColor: number = 0xff000000;
+  // The web view Go makes: the page's Web component shows it.
+  @State webVisible: boolean = false;
+  private webController: webview.WebviewController = new webview.WebviewController();
   // The field the keyboard edits, which Go places: see Host.setTextInput.
   @State inputActive: boolean = false;
   @State inputX: number = 0;
@@ -33,6 +37,7 @@ struct Index {
     const d = display.getDefaultDisplaySync();
     host.scale = d.densityPixels;
     host.prompt = this.getUIContext().getPromptAction();
+    host.webController = this.webController;
     this.sync.setExpectedFrameRateRange({ expected: 60, min: 60, max: 120 });
     this.sync.on('frame', () => {
       host.tick();
@@ -56,6 +61,9 @@ struct Index {
       // The window's background is Go's, and it changes as it paints.
       if (this.windowColor !== host.background) {
         this.windowColor = host.background;
+      }
+      if (this.webVisible !== host.webVisible) {
+        this.webVisible = host.webVisible;
       }
     });
     this.sync.start();
@@ -99,31 +107,53 @@ struct Index {
 
   build() {
     Column() {
-      // The window ArkUI makes for Go, whose surface the module reports.
-      // Its fingers come through the module too: a surface's touch is the
-      // app's, and ArkUI's onTouch does not see it.
-      XComponent({ id: 'mygo', type: XComponentType.SURFACE, libraryname: 'entry' })
+      // The surface is its own layer, over ArkUI's: while a page shows, it
+      // goes, so that the page is not under it. Its fingers come through
+      // the module too: a surface's touch is the app's, and ArkUI's onTouch
+      // does not see it.
+      if (!this.webVisible) {
+        XComponent({ id: 'mygo', type: XComponentType.SURFACE, libraryname: 'entry' })
+          .width('100%')
+          .height('100%')
+          .onLoad(() => {
+            if (started) {
+              return;
+            }
+            started = true;
+            native.start(
+              (buf: Uint8Array): Uint8Array | null => host.call(buf),
+              (handle: number, width: number, height: number, scale: number): void => {
+                host.surface(handle, width, height, scale === 1 ? host.scale : scale);
+              },
+              (): void => {
+                native.drain();
+              },
+              (phase: string, x: number, y: number): void => {
+                host.touchPixels(phase, x, y);
+              });
+            // Not Event.ready: the backend posts that itself (postReady), and
+            // a second one closes a channel twice.
+            native.event(Event.active(true));
+          })
+      }
+
+      // The page Go shows, in the host's web view.
+      Web({ src: 'about:blank', controller: this.webController })
         .width('100%')
         .height('100%')
-        .onLoad(() => {
-          if (started) {
-            return;
+        .javaScriptAccess(true)
+        .opacity(this.webVisible ? 1 : 0)
+        .onPageBegin((event: OnPageBeginEvent) => {
+          host.webBegan(event.url);
+        })
+        .onPageEnd((event: OnPageEndEvent) => {
+          host.webEnded(event.url, event.url);
+        })
+        .onErrorReceive((event: OnErrorReceiveEvent) => {
+          if (event.error) {
+            host.webFailed(event.request.getRequestUrl(), event.error.getErrorCode(),
+              event.error.getErrorInfo());
           }
-          started = true;
-          native.start(
-            (buf: Uint8Array): Uint8Array | null => host.call(buf),
-            (handle: number, width: number, height: number, scale: number): void => {
-              host.surface(handle, width, height, scale === 1 ? host.scale : scale);
-            },
-            (): void => {
-              native.drain();
-            },
-            (phase: string, x: number, y: number): void => {
-              host.touchPixels(phase, x, y);
-            });
-          // Not Event.ready: the backend posts that itself (postReady), and
-          // a second one closes a channel twice.
-          native.event(Event.active(true));
         })
 
       // The field the keyboard edits, over what Go draws there: it stays in

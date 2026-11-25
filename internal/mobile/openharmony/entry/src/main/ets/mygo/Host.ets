@@ -4,11 +4,13 @@
 // frames, and touch.
 
 import promptAction from '@ohos.promptAction';
+import webview from '@ohos.web.webview';
 import { PromptAction } from '@ohos.arkui.UIContext';
 import { BusinessError } from '@ohos.base';
 import { AppInfoReply, BatteryReply, CreateWindowCall, CreateWindowReply, Event, FirstFrameCall,
-  MessageBoxCall, RequestFrameCall, ScreenReply, SetBackgroundCall, SetFrameRateCall, SetTextInputCall,
-  SetTitleCall, ShowWindowCall, ThemeReply, dispatchCall } from './Wire';
+  LoadHTMLCall, LoadURLCall, MessageBoxCall, RequestFrameCall, ScreenReply, SetBackgroundCall, SetFrameRateCall, SetTextInputCall,
+  EvalCall, GoBackCall, GoForwardCall, ReloadCall, SetTitleCall, SetZoomCall, ShowWindowCall,
+  StopLoadingCall, ThemeReply, dispatchCall } from './Wire';
 import { HostStubs } from './HostStubs';
 
 export class Host extends HostStubs {
@@ -37,6 +39,14 @@ export class Host extends HostStubs {
   private composing: boolean = false;
   // What the document Go holds was, when the composing started.
   private markBase: number = 0;
+  // The web view Go made, if any: the page's Web component, which the host
+  // drives. Its id is Go's window.
+  webController: webview.WebviewController | null = null;
+  webVisible: boolean = false;
+  webId: number = 0;
+  private webSrc: string = '';
+  private webHTML: string = '';
+  private webBase: string = '';
   // The system's dialogs, which the page hands over: the host answers Go
   // with what the user chose.
   prompt: PromptAction | null = null;
@@ -52,6 +62,11 @@ export class Host extends HostStubs {
   private height: number = 0;
 
   createWindow(c: CreateWindowCall): CreateWindowReply {
+    if (!c.surface) {
+      // A page, not a surface: the page's Web component shows it.
+      this.webId = c.id;
+      this.webVisible = true;
+    }
     this.windowId = c.id;
     const r = new CreateWindowReply();
     r.error = '';
@@ -69,6 +84,105 @@ export class Host extends HostStubs {
   firstFrame(c: FirstFrameCall): void {}
 
   setTitle(c: SetTitleCall): void {}
+
+  // loadURL and loadHTML are what the page shows; the rest drive it.
+  loadURL(c: LoadURLCall): void {
+    if (c.id !== this.webId) {
+      return;
+    }
+    this.webSrc = c.url;
+    this.webHTML = '';
+    this.webVisible = true;
+    this.applyWeb();
+  }
+
+  loadHTML(c: LoadHTMLCall): void {
+    if (c.id !== this.webId) {
+      return;
+    }
+    this.webHTML = c.html;
+    this.webBase = c.baseURL;
+    this.webSrc = '';
+    this.webVisible = true;
+    this.applyWeb();
+  }
+
+  reload(c: ReloadCall): void {
+    if (c.id === this.webId && this.webController !== null) {
+      this.webController.refresh();
+    }
+  }
+
+  stopLoading(c: StopLoadingCall): void {
+    if (c.id === this.webId && this.webController !== null) {
+      this.webController.stop();
+    }
+  }
+
+  goBack(c: GoBackCall): void {
+    const w = this.webController;
+    if (c.id === this.webId && w !== null && w.accessBackward()) {
+      w.backward();
+    }
+  }
+
+  goForward(c: GoForwardCall): void {
+    const w = this.webController;
+    if (c.id === this.webId && w !== null && w.accessForward()) {
+      w.forward();
+    }
+  }
+
+  eval(c: EvalCall): void {
+    if (c.id === this.webId && this.webController !== null) {
+      this.webController.runJavaScript(c.js);
+    }
+  }
+
+  setZoom(c: SetZoomCall): void {
+    if (c.id === this.webId && this.webController !== null) {
+      this.webController.zoom(c.factor);
+    }
+  }
+
+  // applyWeb shows what Go asked for, once the page has its controller.
+  private applyWeb(): void {
+    const w = this.webController;
+    if (w === null) {
+      return;
+    }
+    if (this.webSrc !== '') {
+      w.loadUrl(this.webSrc);
+    } else if (this.webHTML !== '') {
+      w.loadData(this.webHTML, 'text/html', 'UTF-8', this.webBase, '');
+    }
+  }
+
+  // webBegan, webEnded and webFailed are the page's own reports, which Go
+  // hears as its events.
+  webBegan(url: string): void {
+    if (this.webId !== 0) {
+      this.send(Event.navigationStarted(this.webId, url));
+    }
+  }
+
+  webEnded(url: string, title: string): void {
+    const w = this.webController;
+    if (this.webId === 0) {
+      return;
+    }
+    const back = w !== null && w.accessBackward();
+    const forward = w !== null && w.accessForward();
+    this.send(Event.navigationCommitted(this.webId, url));
+    this.send(Event.pageState(this.webId, url, title, false, back, forward));
+    this.send(Event.loadFinished(this.webId));
+  }
+
+  webFailed(url: string, code: number, description: string): void {
+    if (this.webId !== 0) {
+      this.send(Event.loadFailed(this.webId, url, code, description));
+    }
+  }
 
   // setBackground paints the window the colour Go asked for.
   setBackground(c: SetBackgroundCall): void {

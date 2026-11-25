@@ -85,6 +85,13 @@ takes the first typeface that really maps the rune (a check, not a hope).
 - the keyboard: `SetTextInput` places a see-through `TextInput` over what Go
   draws, focuses it, and the keys it takes go back as `TextReplace` and
   `TextCommand` — a field is typed in, and what Go draws says what it holds;
+- pages: a window Go makes without a surface is ArkUI's `Web` component,
+  loaded with `LoadURL`/`LoadHTML` and driven by `Reload`, `GoBack`,
+  `GoForward`, `Eval` and `SetZoom`; its navigation comes back as
+  `NavigationStarted`, `PageState`, `LoadFinished` and `LoadFailed`. The
+  XComponent goes while a page shows: a surface is a layer of its own, over
+  ArkUI's, and the page would be under it. A page needs
+  `ohos.permission.INTERNET` in the app's `module.json5`;
 - the system's alerts: `MessageBox` shows ArkUI's dialog, and the button the
   user takes comes back as `MessageBoxResult`;
 - the insets of `Resized`, read from the window's avoid areas
