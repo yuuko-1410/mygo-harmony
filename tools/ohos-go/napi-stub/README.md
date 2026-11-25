@@ -32,3 +32,22 @@ same symbol is assembled as general-dynamic.
 
 `TMPDIR` matters on a HarmonyOS device: hmfs answers `EACCES` to `fallocate`,
 which the unpatched linker takes for a fatal error.
+
+## Reading the loader's refusal
+
+`dlerror` is what names the cause, and a NAPI module cannot report its own
+failure to load. Load it from one that does load — the fork's — by putting the
+stub in the HAP as a second library and `dlopen`ing it there:
+
+```cpp
+// in napi_init.cpp's Init, for the experiment only
+if (void *h = dlopen("libprobe.so", RTLD_NOW)) {
+    LOGI("MYGOPROBE dlopen ok");
+    dlclose(h);
+} else {
+    const char *e = dlerror();
+    LOGI("MYGOPROBE dlopen failed: %{public}s", e == nullptr ? "(no dlerror)" : e);
+}
+```
+
+`%{public}s` matters: hilog prints `%s` as `<private>`.

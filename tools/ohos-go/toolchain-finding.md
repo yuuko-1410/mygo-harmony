@@ -41,6 +41,20 @@ initial-exec, and nothing on the command line changes that:
 `-gcflags=all=-shared` and `-ldflags=-linkmode=external` were both tried and
 leave the relocation in place.
 
+The loader says so itself. Built the same way by both toolchains and
+`dlopen`ed from a working `libentry.so`, the same eighteen functions are:
+
+```
+stock Go   →  Error relocating …/libprobe.so:
+              initial-exec TLS resolves to dynamic definition in …/libprobe.so
+the fork   →  dlopen ok
+```
+
+That is the whole of it: nothing of the archive's constructor misbehaves on
+musl (the fork's copy runs it and loads), so the review's other hypothesis —
+`DT_INIT_ARRAY` receiving no arguments — does not bite here, while the TLS
+model does.
+
 Upstream Go has no TLS-model switch at all. The fork's is:
 
 ```
