@@ -1,6 +1,7 @@
 import native from 'libentry.so';
 import displaySync from '@ohos.graphics.displaySync';
 import display from '@ohos.display';
+import window from '@ohos.window';
 import { Host } from '../mygo/Host';
 import { Event } from '../mygo/Wire';
 
@@ -38,6 +39,38 @@ struct Index {
       }
     });
     this.sync.start();
+    window.getLastWindow(this.getUIContext().getHostContext()).then((w: window.Window) => {
+      this.measure(w);
+      // The bars, the cutout and the keyboard come and go.
+      w.on('avoidAreaChange', () => {
+        this.measure(w);
+      });
+      w.on('windowSizeChange', () => {
+        this.measure(w);
+      });
+    }).catch((e: Error) => {
+      console.error(`mygo: no window to measure: ${e.message}`);
+    });
+  }
+
+  // measure tells the host what the system covers, in pixels.
+  private measure(w: window.Window): void {
+    try {
+      const rect = w.getWindowProperties().windowRect;
+      const bars = w.getWindowAvoidArea(window.AvoidAreaType.TYPE_SYSTEM);
+      const cutout = w.getWindowAvoidArea(window.AvoidAreaType.TYPE_CUTOUT);
+      const keyboard = w.getWindowAvoidArea(window.AvoidAreaType.TYPE_KEYBOARD);
+      const top = Math.max(bars.topRect.height, cutout.topRect.height);
+      const left = Math.max(bars.leftRect.width, cutout.leftRect.width);
+      const right = Math.max(bars.rightRect.width, cutout.rightRect.width);
+      const bottom = Math.max(bars.bottomRect.height, keyboard.bottomRect.height);
+      console.info(`mygo: window ${rect.width}x${rect.height}, ` +
+        `bars ${top},${left},${bottom},${right}, keyboard ${keyboard.bottomRect.height}`);
+      host.sizeChanged(rect.width, rect.height,
+        [top, left, bottom, right, keyboard.bottomRect.height]);
+    } catch (e) {
+      console.error(`mygo: measure: ${e}`);
+    }
   }
 
   aboutToDisappear(): void {

@@ -70,7 +70,10 @@ it is this platform when the GOOS cannot say so.
 - a host that makes a window, reports its surface and its size, paints the
   background Go asks for, sends `Frame` at the display's refreshes (and at
   the rate `SetFrameRate` asks), forwards touch, and answers the calls a
-  start needs.
+  start needs;
+- the insets of `Resized`, read from the window's avoid areas
+  (`TYPE_SYSTEM`, `TYPE_CUTOUT`, `TYPE_KEYBOARD`) and sent again as they
+  change.
 
 Verified on the device (MateBook Pro S, API 26): the app's c-archive builds
 (32.4 MB), `libentry.so` links, and the HAP builds, installs and launches.
@@ -84,8 +87,10 @@ reaches `libnative_drawing` through purego, so there is no pango to miss.
 
 ## What is not
 
-The insets sent with `Resized` are all zero: the system's bars, a cutout and
-the keyboard cover nothing as far as this host knows. There is no keyboard:
+The insets are the window's own — zero in a floating window, which is what
+the 2in1 gives — and whether the core moves a plain window's content by them
+is untested: there is no keyboard and no full-screen bar here to move it.
+There is no keyboard:
 `SetTextInput` falls to `HostStubs`, so a text field draws but takes no
 typing. Nothing draws in a window's child views (`PlaceViews`), and there is
 no web view, no tabs, no accessibility tree.

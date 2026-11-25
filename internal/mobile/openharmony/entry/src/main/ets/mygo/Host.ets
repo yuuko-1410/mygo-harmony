@@ -13,6 +13,13 @@ export class Host extends HostStubs {
   windowId: number = 0;
   dark: boolean = true;
   scale: number = 1;
+  // What the system's bars, a cutout and the keyboard cover, in pixels, and
+  // the window's size in the same: the insets Go lays content inside.
+  insetTop: number = 0;
+  insetLeft: number = 0;
+  insetBottom: number = 0;
+  insetRight: number = 0;
+  keyboard: number = 0;
   // The window's background, as 0xAARRGGBB, and the rate frames come at.
   background: number = 0xff000000;
   fps: number = 0;
@@ -111,9 +118,32 @@ export class Host extends HostStubs {
   // windowSize tells Go the window's size in DIPs, its scale and its
   // insets, then where to draw: it draws nothing while it knows no size.
   private windowSize(): void {
-    this.send(Event.surfaceChanged(this.windowId, this.handle, this.width, this.height, this.scale, 60));
-    this.send(Event.resized(this.windowId, this.width / this.scale, this.height / this.scale, this.scale,
-      0, 0, 0, 0, 0));
+    if (this.windowId === 0 || this.handle === 0) {
+      return;
+    }
+    const scale = this.scale > 0 ? this.scale : 1;
+    this.send(Event.surfaceChanged(this.windowId, this.handle, this.width, this.height, scale, 60));
+    this.send(Event.resized(this.windowId, this.width / scale, this.height / scale, scale,
+      this.insetTop / scale, this.insetLeft / scale, this.insetBottom / scale, this.insetRight / scale,
+      this.keyboard / scale));
+  }
+
+  // sizeChanged is the page telling what the system covers, in pixels.
+  sizeChanged(width: number, height: number, insets: number[]): void {
+    if (width > 0) {
+      this.width = width;
+    }
+    if (height > 0) {
+      this.height = height;
+    }
+    if (insets.length >= 5) {
+      this.insetTop = insets[0];
+      this.insetLeft = insets[1];
+      this.insetBottom = insets[2];
+      this.insetRight = insets[3];
+      this.keyboard = insets[4];
+    }
+    this.windowSize();
   }
 
   // touchPixels is a finger of the surface, in its pixels: Go lays out in
