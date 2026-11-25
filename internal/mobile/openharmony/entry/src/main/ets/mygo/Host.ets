@@ -3,9 +3,12 @@
 // no use for yet, and adds what a window needs: the surface ArkUI made,
 // frames, and touch.
 
+import promptAction from '@ohos.promptAction';
+import { PromptAction } from '@ohos.arkui.UIContext';
+import { BusinessError } from '@ohos.base';
 import { AppInfoReply, BatteryReply, CreateWindowCall, CreateWindowReply, Event, FirstFrameCall,
-  RequestFrameCall, ScreenReply, SetBackgroundCall, SetFrameRateCall, SetTextInputCall, SetTitleCall,
-  ShowWindowCall, ThemeReply, dispatchCall } from './Wire';
+  MessageBoxCall, RequestFrameCall, ScreenReply, SetBackgroundCall, SetFrameRateCall, SetTextInputCall,
+  SetTitleCall, ShowWindowCall, ThemeReply, dispatchCall } from './Wire';
 import { HostStubs } from './HostStubs';
 
 export class Host extends HostStubs {
@@ -34,6 +37,9 @@ export class Host extends HostStubs {
   private composing: boolean = false;
   // What the document Go holds was, when the composing started.
   private markBase: number = 0;
+  // The system's dialogs, which the page hands over: the host answers Go
+  // with what the user chose.
+  prompt: PromptAction | null = null;
   // The window's background, as 0xAARRGGBB, and the rate frames come at.
   background: number = 0xff000000;
   fps: number = 0;
@@ -133,6 +139,28 @@ export class Host extends HostStubs {
     if (this.inputId !== 0) {
       this.send(Event.textCommand(this.inputId, name));
     }
+  }
+
+  // messageBox shows the system's alert and answers with the button the
+  // user took, as Event.messageBoxResult.
+  messageBox(c: MessageBoxCall): void {
+    const texts: string[] = c.buttons.length > 0 ? c.buttons : ['OK'];
+    const buttons: promptAction.Button[] = [];
+    for (const text of texts) {
+      buttons.push({ text: text, color: '#007aff' });
+    }
+    const message = c.detail.length > 0 ? `${c.message}\n\n${c.detail}` : c.message;
+    const options: promptAction.ShowDialogOptions = { title: c.title, message: message, buttons: buttons };
+    if (this.prompt === null) {
+      this.send(Event.messageBoxResult(c.req, c.cancelID));
+      return;
+    }
+    this.prompt.showDialog(options).then((r: promptAction.ShowDialogSuccessResponse) => {
+      this.send(Event.messageBoxResult(c.req, r.index));
+    }).catch((e: BusinessError) => {
+      // Dismissed: the cancel button, as a phone's alert does.
+      this.send(Event.messageBoxResult(c.req, c.cancelID));
+    });
   }
 
   // requestFrame notes that Go has something to draw: the display's next

@@ -32,6 +32,7 @@ struct Index {
     };
     const d = display.getDefaultDisplaySync();
     host.scale = d.densityPixels;
+    host.prompt = this.getUIContext().getPromptAction();
     this.sync.setExpectedFrameRateRange({ expected: 60, min: 60, max: 120 });
     this.sync.on('frame', () => {
       host.tick();
@@ -152,7 +153,8 @@ struct Index {
           }
         })
         .onSubmit(() => {
-          host.command('enter');
+          // Go's name for the key the field's return is.
+          host.command('newline');
         })
     }
     .width('100%')
