@@ -4,7 +4,8 @@
 // frames, and touch.
 
 import { AppInfoReply, BatteryReply, CreateWindowCall, CreateWindowReply, Event, FirstFrameCall,
-  RequestFrameCall, ScreenReply, SetTitleCall, ShowWindowCall, ThemeReply, dispatchCall } from './Wire';
+  RequestFrameCall, ScreenReply, SetBackgroundCall, SetFrameRateCall, SetTitleCall, ShowWindowCall,
+  ThemeReply, dispatchCall } from './Wire';
 import { HostStubs } from './HostStubs';
 
 export class Host extends HostStubs {
@@ -12,6 +13,9 @@ export class Host extends HostStubs {
   windowId: number = 0;
   dark: boolean = true;
   scale: number = 1;
+  // The window's background, as 0xAARRGGBB, and the rate frames come at.
+  background: number = 0xff000000;
+  fps: number = 0;
   // Sends an event to Go: the page's native.event.
   send: (buf: Uint8Array) => void = (buf: Uint8Array) => {};
   private wanted: boolean = false;
@@ -38,6 +42,17 @@ export class Host extends HostStubs {
   firstFrame(c: FirstFrameCall): void {}
 
   setTitle(c: SetTitleCall): void {}
+
+  // setBackground paints the window the colour Go asked for.
+  setBackground(c: SetBackgroundCall): void {
+    this.background = c.color;
+  }
+
+  // setFrameRate is how often Go draws while frames follow each other: the
+  // display's own when it asks for none.
+  setFrameRate(c: SetFrameRateCall): void {
+    this.fps = c.fps;
+  }
 
   // requestFrame notes that Go has something to draw: the display's next
   // refresh brings it a Frame event.
@@ -99,6 +114,13 @@ export class Host extends HostStubs {
     this.send(Event.surfaceChanged(this.windowId, this.handle, this.width, this.height, this.scale, 60));
     this.send(Event.resized(this.windowId, this.width / this.scale, this.height / this.scale, this.scale,
       0, 0, 0, 0, 0));
+  }
+
+  // touchPixels is a finger of the surface, in its pixels: Go lays out in
+  // DIPs.
+  touchPixels(phase: string, x: number, y: number): void {
+    const scale = this.scale > 0 ? this.scale : 1;
+    this.touch(x / scale, y / scale, phase);
   }
 
   touch(x: number, y: number, phase: string): void {

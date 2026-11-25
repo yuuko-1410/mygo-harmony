@@ -62,10 +62,15 @@ it is this platform when the GOOS cannot say so.
 - the codec, written for ArkTS's numbers: `WireWriter`/`WireReader` write the
   varint with division rather than shifts, since ArkTS's bit operators are 32
   bits wide, and UTF-8 by hand rather than with `@ohos.util`;
-- the shim: `start`, `event` and `drain`, the XComponent's surface callbacks,
-  a threadsafe function for `post`, and the app's log lines;
-- a host that makes a window, reports its surface, sends `Frame` at the
-  display's refreshes, forwards touch, and answers the calls a start needs.
+- the shim: `start`, `event` and `drain`, the XComponent's surface and touch
+  callbacks, a threadsafe function for `post`, and the app's log lines;
+- touch: a surface's fingers arrive in the XComponent's own
+  `DispatchTouchEvent`, not in ArkUI's `onTouch` (the surface is the app's),
+  in pixels, which the host divides by the scale to reach DIPs;
+- a host that makes a window, reports its surface and its size, paints the
+  background Go asks for, sends `Frame` at the display's refreshes (and at
+  the rate `SetFrameRate` asks), forwards touch, and answers the calls a
+  start needs.
 
 Verified on the device (MateBook Pro S, API 26): the app's c-archive builds
 (32.4 MB), `libentry.so` links, and the HAP builds, installs and launches.
@@ -79,10 +84,11 @@ reaches `libnative_drawing` through purego, so there is no pango to miss.
 
 ## What is not
 
-Touch is wired but untried; the display's frames come from one
-`displaySync` at 60 Hz, not from what Go asks for (`SetFrameRate`), so an
-animation at 120 Hz draws at 60. Inset: the safe areas are all zero, and a
-keyboard is yet to cover anything.
+The insets sent with `Resized` are all zero: the system's bars, a cutout and
+the keyboard cover nothing as far as this host knows. There is no keyboard:
+`SetTextInput` falls to `HostStubs`, so a text field draws but takes no
+typing. Nothing draws in a window's child views (`PlaceViews`), and there is
+no web view, no tabs, no accessibility tree.
 
 The host answers a window, a surface, frames and touch. Everything else — the
 keyboard, the web view, tabs, accessibility, insets, the services — is

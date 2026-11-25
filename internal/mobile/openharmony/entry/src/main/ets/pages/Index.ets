@@ -13,6 +13,10 @@ const host: Host = new Host();
 @Component
 struct Index {
   private sync: displaySync.DisplaySync = displaySync.create();
+  // Not `background`: that is ArkUI's own attribute, inherited by the
+  // struct.
+  @State windowColor: number = 0xff000000;
+  private drawnAt: number = 0;
 
   aboutToAppear(): void {
     host.send = (buf: Uint8Array): void => {
@@ -23,6 +27,15 @@ struct Index {
     this.sync.setExpectedFrameRateRange({ expected: 60, min: 60, max: 120 });
     this.sync.on('frame', () => {
       host.tick();
+      // Go draws at the rate it asks for while frames follow each other.
+      if (host.fps > 0 && host.fps !== this.drawnAt) {
+        this.drawnAt = host.fps;
+        this.sync.setExpectedFrameRateRange({ expected: host.fps, min: 60, max: 120 });
+      }
+      // The window's background is Go's, and it changes as it paints.
+      if (this.windowColor !== host.background) {
+        this.windowColor = host.background;
+      }
     });
     this.sync.start();
   }
@@ -49,6 +62,10 @@ struct Index {
             },
             (): void => {
               native.drain();
+            },
+            // The surface's own fingers, which ArkUI does not report here.
+            (phase: string, x: number, y: number): void => {
+              host.touchPixels(phase, x, y);
             });
           // Not Event.ready: the backend posts that itself (postReady), and
           // a second one closes a channel twice.
@@ -81,5 +98,6 @@ struct Index {
     }
     .width('100%')
     .height('100%')
+    .backgroundColor(this.windowColor)
   }
 }

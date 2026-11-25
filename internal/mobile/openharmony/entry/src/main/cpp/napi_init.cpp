@@ -36,6 +36,7 @@ namespace {
 napi_env g_env = nullptr;
 napi_ref g_dispatch = nullptr;   // (Uint8Array) => Uint8Array | null
 napi_ref g_surface = nullptr;    // (handle, width, height, scale) => void
+napi_ref g_touch = nullptr;      // (phase, x, y) => void
 napi_threadsafe_function g_post = nullptr;
 OH_NativeXComponent *g_component = nullptr;
 // The window ArkUI made, which may come before start sets a listener.
@@ -104,6 +105,53 @@ void OnSurfaceChanged(OH_NativeXComponent *, void *window) {
     callSurface(reinterpret_cast<uint64_t>(window), static_cast<double>(width), static_cast<double>(height), 1);
 }
 
+// DispatchTouchEvent is where a surface's fingers come: ArkUI's own
+// onTouch does not see them, as the surface is the app's.
+void DispatchTouchEvent(OH_NativeXComponent *, void *window) {
+    OH_NativeXComponent_TouchEvent te;
+    if (OH_NativeXComponent_GetTouchEvent(g_component, window, &te) != 0) {
+        return;
+    }
+    const char *phase = nullptr;
+    switch (te.type) {
+        case OH_NATIVEXCOMPONENT_DOWN:
+            phase = "down";
+            break;
+        case OH_NATIVEXCOMPONENT_MOVE:
+            phase = "move";
+            break;
+        case OH_NATIVEXCOMPONENT_UP:
+            phase = "up";
+            break;
+        case OH_NATIVEXCOMPONENT_CANCEL:
+            phase = "cancel";
+            break;
+        default:
+            return;
+    }
+    if (te.numPoints < 1 || g_env == nullptr || g_touch == nullptr) {
+        return;
+    }
+    const OH_NativeXComponent_TouchPoint &p = te.touchPoints[0];
+    napi_handle_scope scope;
+    if (napi_open_handle_scope(g_env, &scope) != napi_ok) {
+        return;
+    }
+    napi_value cb = nullptr;
+    napi_value global = nullptr;
+    napi_value result = nullptr;
+    napi_value argv[3] = {nullptr, nullptr, nullptr};
+    napi_create_string_utf8(g_env, phase, NAPI_AUTO_LENGTH, &argv[0]);
+    napi_create_double(g_env, p.x, &argv[1]);
+    napi_create_double(g_env, p.y, &argv[2]);
+    napi_get_reference_value(g_env, g_touch, &cb);
+    napi_get_global(g_env, &global);
+    if (cb != nullptr) {
+        napi_call_function(g_env, global, cb, 3, argv, &result);
+    }
+    napi_close_handle_scope(g_env, scope);
+}
+
 void OnSurfaceDestroyed(OH_NativeXComponent *, void *) {
     LOGI("MYGO surface gone");
     callSurface(0, 0, 0, 1);
@@ -113,7 +161,7 @@ OH_NativeXComponent_Callback g_callbacks = {
     .OnSurfaceCreated = OnSurfaceCreated,
     .OnSurfaceChanged = OnSurfaceChanged,
     .OnSurfaceDestroyed = OnSurfaceDestroyed,
-    .DispatchTouchEvent = nullptr,
+    .DispatchTouchEvent = DispatchTouchEvent,
 };
 
 // bytes copies a JS Uint8Array or ArrayBuffer, which Go frees.
@@ -188,15 +236,16 @@ napi_value start(napi_env env, napi_callback_info info) {
     }
     begun = true;
     LOGI("MYGO start");
-    size_t argc = 3;
-    napi_value argv[3] = {nullptr, nullptr, nullptr};
-    if (napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr) != napi_ok || argc < 3) {
-        napi_throw_error(env, nullptr, "start(dispatch, onSurface, onDrain)");
+    size_t argc = 4;
+    napi_value argv[4] = {nullptr, nullptr, nullptr, nullptr};
+    if (napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr) != napi_ok || argc < 4) {
+        napi_throw_error(env, nullptr, "start(dispatch, onSurface, onDrain, onTouch)");
         return nullptr;
     }
     g_env = env;
     napi_create_reference(env, argv[0], 1, &g_dispatch);
     napi_create_reference(env, argv[1], 1, &g_surface);
+    napi_create_reference(env, argv[3], 1, &g_touch);
     napi_value name = nullptr;
     napi_create_string_utf8(env, "mygoDrain", NAPI_AUTO_LENGTH, &name);
     if (napi_create_threadsafe_function(env, argv[2], nullptr, name, 0, 1, nullptr, nullptr, nullptr, postJS,
