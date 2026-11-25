@@ -1,0 +1,134 @@
+--- a/src/cmd/asm/internal/flags/flags.go
++++ b/src/cmd/asm/internal/flags/flags.go
+@@ -26,6 +26,7 @@
+ 	SymABIs    = flag.Bool("gensymabis", false, "write symbol ABI information to output file, don't assemble")
+ 	Importpath = flag.String("p", obj.UnlinkablePkg, "set expected package import to path")
+ 	Spectre    = flag.String("spectre", "", "enable spectre mitigations in `list` (all, ret)")
++	Tls        = flag.String("tls", "", "specifies tls model to use from `list` (LE, IE, GD)")
+ 	Std        = flag.Bool("std", false, "building standard library")
+ )
+ 
+--- a/src/cmd/asm/main.go
++++ b/src/cmd/asm/main.go
+@@ -64,6 +64,19 @@
+ 	case "all", "ret":
+ 		ctxt.Retpoline = true
+ 	}
++	switch *flags.Tls {
++	default:
++		log.Printf("unknown tls model requested: -tls=%s (expected GD, IE or LE)", *flags.Tls)
++		os.Exit(2)
++	case "":
++		// nothing
++	case "GD", "IE", "LE":
++		if GOARCH != "arm64" && GOARCH != "amd64" {
++			log.Printf("explicit tls mode; (-tls) is currently only supported for arm64 and amd64")
++			os.Exit(2)
++		}
++		ctxt.Tls = *flags.Tls
++	}
+ 
+ 	ctxt.Bso = bufio.NewWriter(os.Stdout)
+ 	defer ctxt.Bso.Flush()
+--- a/src/cmd/internal/obj/link.go
++++ b/src/cmd/internal/obj/link.go
+@@ -1174,6 +1174,7 @@
+ 	Retpoline            bool   // emit use of retpoline stubs for indirect jmp/call
+ 	Flag_maymorestack    string // If not "", call this function before stack checks
+ 	Bso                  *bufio.Writer
++	Tls                  string // If not "", specifies tls model to use: "LE", IE" or "GD"
+ 	Pathname             string
+ 	Pkgpath              string // the current package's import path
+ 
+--- a/src/cmd/internal/obj/arm64/a.out.go
++++ b/src/cmd/internal/obj/arm64/a.out.go
+@@ -607,6 +607,11 @@
+ 	// offset from the thread local base.
+ 	C_TLS_IE
+ 
++	// TLS "var" in general dynamic mode: does not assume that module number
++	// or variable offset is known at link time, will be lowered to instructions
++	// sequence ending with a call which the dynamic linker will fix up.
++	C_TLS_GD
++
+ 	C_ROFF // register offset (including register extended)
+ 
+ 	C_GOK
+--- a/src/cmd/internal/obj/arm64/asm7.go
++++ b/src/cmd/internal/obj/arm64/asm7.go
+@@ -511,6 +511,7 @@
+ 	{AMOVD, C_GOTADDR, C_NONE, C_NONE, C_ZREG, C_NONE, 71, 8, 0, 0, 0},
+ 	{AMOVD, C_TLS_LE, C_NONE, C_NONE, C_ZREG, C_NONE, 69, 4, 0, 0, 0},
+ 	{AMOVD, C_TLS_IE, C_NONE, C_NONE, C_ZREG, C_NONE, 70, 8, 0, 0, 0},
++	{AMOVD, C_TLS_GD, C_NONE, C_NONE, C_ZREG, C_NONE, 101, 16, 0, 0, 0},
+ 
+ 	{AFMOVS, C_FREG, C_NONE, C_NONE, C_ADDR, C_NONE, 64, 12, 0, 0, 0},
+ 	{AFMOVS, C_ADDR, C_NONE, C_NONE, C_FREG, C_NONE, 65, 12, 0, 0, 0},
+@@ -2125,10 +2126,22 @@
+ 			c.instoffset = a.Offset
+ 			if a.Sym != nil { // use relocation
+ 				if a.Sym.Type == objabi.STLSBSS {
+-					if c.ctxt.Flag_shared {
++					switch c.ctxt.Tls {
++					default:
++						c.ctxt.Diag("%v: unknown tls model requested: %s (expected GD, IE or LE)", a, c.ctxt.Tls)
++						fallthrough
++					case "":
++						if c.ctxt.Flag_shared {
++							return C_TLS_IE
++						} else {
++							return C_TLS_LE
++						}
++					case "IE":
+ 						return C_TLS_IE
+-					} else {
++					case "LE":
+ 						return C_TLS_LE
++					case "GD":
++						return C_TLS_GD
+ 					}
+ 				}
+ 				return C_ADDR
+@@ -4847,6 +4860,25 @@
+ 			c.ctxt.Diag("invalid offset on MOVW $tlsvar")
+ 		}
+ 
++	case 101: /* GD model movd $tlsvar, reg -> adrp reg, #0; ldr REGTMP, [reg, #0]; add reg, reg, #0; blr REGTMP + relocs */
++		o1 = ADR(1, 0, uint32(p.To.Reg))
++		o2 = c.olsr12u(p, c.opldr(p, AMOVD), 0, p.To.Reg, REGTMP)
++		o3 = c.opirr(p, AADD)
++		o4 = c.opbrr(p, ABL)
++		o4 |= uint32((REGTMP)&31) << 5
++		c.cursym.AddRel(c.ctxt, obj.Reloc{
++			Type: objabi.R_ARM64_TLS_GD,
++			Off:  int32(c.pc),
++			Siz:  8,
++			Sym:  p.From.Sym,
++		})
++		if p.From.Offset != 0 {
++			c.ctxt.Diag("invalid offset on MOVW $tlsvar")
++		}
++		if p.To.Reg != REG_R0 {
++			c.ctxt.Diag("expected R0 output on MOVW $tlsvar")
++		}
++
+ 	case 71: /* movd sym@GOT, reg -> adrp REGTMP, #0; ldr reg, [REGTMP, #0] + relocs */
+ 		o1 = ADR(1, 0, REGTMP)
+ 		o2 = c.olsr12u(p, c.opldr(p, AMOVD), 0, REGTMP, p.To.Reg)
+--- a/src/cmd/go/internal/work/init.go
++++ b/src/cmd/go/internal/work/init.go
+@@ -238,6 +238,13 @@
+ 			case "dragonfly", "freebsd", "illumos", "linux", "netbsd", "openbsd", "solaris":
+ 				// Use -shared so that the result is
+ 				// suitable for inclusion in a PIE or
+ 				// shared library.
+ 				codegenArg = "-shared"
++				if cfg.Goarch == "arm64" {
++					// A c-archive of arm64 is dlopen'd by its host (a NAPI
++					// module, a JNI library), where initial-exec TLS is not
++					// allowed: assemble the g pointer's TLS as general-dynamic.
++					forcedAsmflags = append(forcedAsmflags, "-tls=GD", "-D=TLS_GD")
++				}
+ 			}
+ 		}
+ 		cfg.ExeSuffix = ".a"

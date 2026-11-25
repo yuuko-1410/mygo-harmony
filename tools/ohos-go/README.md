@@ -48,3 +48,31 @@ OpenHarmony signal table, cgo callbacks, DNS configuration, CPU features,
 platform tests). It is a drop-in replacement — same `GOOS=openharmony`, same
 `-buildmode=c-archive` — and only needs a source bootstrap on arm64 hosts.
 See "The toolchain" in `docs/ohos-port.md`.
+
+## A patch instead of a fork? (untested)
+
+`tls-gd.patch` turns a stock Go 1.27.4 into one whose arm64 c-archives can be
+`dlopen`ed: it adds `-tls=LE|IE|GD` to `cmd/asm`, carries the model through
+`cmd/internal/obj`, emits `DTPREL` for `GD` in the arm64 backend, and has
+`cmd/go` ask for `GD` when it builds an arm64 c-archive. 134 lines of diff,
+about 63 added.
+
+It applies to the source tree of a Go 1.27.4 installation (`patch -p1 -d
+$(go env GOROOT)`), but it has not been built here: this machine cannot run
+`make.bash` (its freshly linked `go_bootstrap` is refused by `execve`). What
+is measured is the failure it addresses — see `toolchain-finding.md` — and
+that the patch applies cleanly to 1.27.4.
+
+With it, the port builds on a stock Go:
+
+```sh
+# in the Go tree: apply the patch, then src/make.bash on a normal machine
+export GOOS=linux GOARCH=arm64 CGO_ENABLED=1
+export CC="$SDK/llvm/bin/clang --target=aarch64-linux-ohos --sysroot=$SDK/sysroot -D__MUSL__"
+go build -tags ohos -buildmode=c-archive -o libapp.a .
+```
+
+What that costs, beyond the patch: `runtime.GOOS` is then `linux`, so `time`
+reads `/usr/share/zoneinfo` (absent on OpenHarmony: `time.Local` is UTC) and
+`mime` reads `/usr/share/mime`. The fork's `time/zoneinfo_openharmony.go` and
+`mime/type_openharmony.go` are what those two lines buy.
