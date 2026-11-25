@@ -87,6 +87,21 @@ hosts (this machine is HarmonyOS aarch64, its Go reports `linux/arm64`):
    tolerates only for `EPERM`/`ENOTSUP`. Tolerate `EACCES` too in
    `src/cmd/link/internal/ld/outbuf_mmap.go`.
 
+The patches live in `tools/ohos-go/` (`ohos-go.patch`, applied once per
+checkout). `mygo ohos doctor` tells whether the tree it found has them.
+
+A more thorough port exists: `ZxillyFork/go-hmos` (a fork of `golang/go`,
+branch `hmos-release-branch.go1.27`, `VERSION` `go1.27.4-hmos-devel`). It has
+what the fork above lacks — `runtime/sigtab_openharmony.go`, which keeps
+OHOS's own `SIGURG`/`SIGPROF` instead of repurposing them as Go does on Linux;
+`runtime/cgo/gcc_openharmony.c` with its callbacks; `net/dnsconfig_openharmony.go`;
+`internal/cpu/cpu_arm64_openharmony.go`; and tests of the platform. Switching
+to it changes nothing here: the same GOOS, the same `-buildmode=c-archive`.
+It was not adopted yet because it publishes only a linux-amd64 binary, so an
+arm64 host must bootstrap it from source, and on this machine newly built tool
+binaries are refused by `execve` (`EACCES`) outside a plain terminal.
+
+
 ## Platform API map
 
 | MyGo needs | Android | iOS | OpenHarmony (this port) |
