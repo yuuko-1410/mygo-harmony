@@ -17,6 +17,13 @@ struct Index {
   // Not `background`: that is ArkUI's own attribute, inherited by the
   // struct.
   @State windowColor: number = 0xff000000;
+  // The field the keyboard edits, which Go places: see Host.setTextInput.
+  @State inputActive: boolean = false;
+  @State inputX: number = 0;
+  @State inputY: number = 0;
+  @State inputWidth: number = 0;
+  @State inputHeight: number = 0;
+  @State inputText: string = '';
   private drawnAt: number = 0;
 
   aboutToAppear(): void {
@@ -28,6 +35,18 @@ struct Index {
     this.sync.setExpectedFrameRateRange({ expected: 60, min: 60, max: 120 });
     this.sync.on('frame', () => {
       host.tick();
+      if (this.inputActive !== host.inputActive || this.inputX !== host.inputX ||
+        this.inputY !== host.inputY || this.inputText !== host.inputText) {
+        this.inputActive = host.inputActive;
+        this.inputX = host.inputX;
+        this.inputY = host.inputY;
+        this.inputWidth = host.inputWidth;
+        this.inputHeight = host.inputHeight;
+        this.inputText = host.inputText;
+        if (this.inputActive) {
+          this.getUIContext().getFocusController().requestFocus('mygoInput');
+        }
+      }
       // Go draws at the rate it asks for while frames follow each other.
       if (host.fps > 0 && host.fps !== this.drawnAt) {
         this.drawnAt = host.fps;
@@ -80,6 +99,8 @@ struct Index {
   build() {
     Column() {
       // The window ArkUI makes for Go, whose surface the module reports.
+      // Its fingers come through the module too: a surface's touch is the
+      // app's, and ArkUI's onTouch does not see it.
       XComponent({ id: 'mygo', type: XComponentType.SURFACE, libraryname: 'entry' })
         .width('100%')
         .height('100%')
@@ -96,7 +117,6 @@ struct Index {
             (): void => {
               native.drain();
             },
-            // The surface's own fingers, which ArkUI does not report here.
             (phase: string, x: number, y: number): void => {
               host.touchPixels(phase, x, y);
             });
@@ -104,29 +124,21 @@ struct Index {
           // a second one closes a channel twice.
           native.event(Event.active(true));
         })
-        .onTouch((event: TouchEvent) => {
-          if (event.touches.length === 0) {
-            return;
-          }
-          const t = event.touches[0];
-          try {
-            switch (event.type) {
-              case TouchType.Down:
-                host.touch(t.x, t.y, 'down');
-                break;
-              case TouchType.Move:
-                host.touch(t.x, t.y, 'move');
-                break;
-              case TouchType.Up:
-                host.touch(t.x, t.y, 'up');
-                break;
-              default:
-                host.touch(t.x, t.y, 'cancel');
-                break;
-            }
-          } catch (e) {
-            // A touch Go has no window for yet.
-          }
+
+      // The field the keyboard edits, over what Go draws there: it stays in
+      // the tree, off to the side while there is no text to edit.
+      TextInput({ text: this.inputText })
+        .id('mygoInput')
+        .type(InputType.Normal)
+        .position({ x: this.inputActive ? this.inputX : -2000, y: this.inputY })
+        .width(this.inputActive && this.inputWidth > 0 ? this.inputWidth : 200)
+        .height(this.inputActive && this.inputHeight > 0 ? this.inputHeight : 40)
+        .backgroundColor('#00000000')
+        .onChange((value: string) => {
+          host.replaceText(value);
+        })
+        .onSubmit(() => {
+          host.command('enter');
         })
     }
     .width('100%')

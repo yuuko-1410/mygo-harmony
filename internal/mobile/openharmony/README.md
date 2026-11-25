@@ -71,6 +71,9 @@ it is this platform when the GOOS cannot say so.
   background Go asks for, sends `Frame` at the display's refreshes (and at
   the rate `SetFrameRate` asks), forwards touch, and answers the calls a
   start needs;
+- the keyboard: `SetTextInput` places a see-through `TextInput` over what Go
+  draws, focuses it, and the keys it takes go back as `TextReplace` and
+  `TextCommand` — a field is typed in, and what Go draws says what it holds;
 - the insets of `Resized`, read from the window's avoid areas
   (`TYPE_SYSTEM`, `TYPE_CUTOUT`, `TYPE_KEYBOARD`) and sent again as they
   change.
@@ -90,10 +93,11 @@ reaches `libnative_drawing` through purego, so there is no pango to miss.
 The insets are the window's own — zero in a floating window, which is what
 the 2in1 gives — and whether the core moves a plain window's content by them
 is untested: there is no keyboard and no full-screen bar here to move it.
-There is no keyboard:
-`SetTextInput` falls to `HostStubs`, so a text field draws but takes no
-typing. Nothing draws in a window's child views (`PlaceViews`), and there is
-no web view, no tabs, no accessibility tree.
+The keyboard replaces the whole document on every change (`TextReplace`
+with the field's whole text): no marked text, so no composing input method,
+and no selection or delete/arrow commands. Nothing draws in a window's child
+views (`PlaceViews`), and there is no web view, no tabs, no accessibility
+tree.
 
 The host answers a window, a surface, frames and touch. Everything else — the
 keyboard, the web view, tabs, accessibility, insets, the services — is

@@ -4,8 +4,8 @@
 // frames, and touch.
 
 import { AppInfoReply, BatteryReply, CreateWindowCall, CreateWindowReply, Event, FirstFrameCall,
-  RequestFrameCall, ScreenReply, SetBackgroundCall, SetFrameRateCall, SetTitleCall, ShowWindowCall,
-  ThemeReply, dispatchCall } from './Wire';
+  RequestFrameCall, ScreenReply, SetBackgroundCall, SetFrameRateCall, SetTextInputCall, SetTitleCall,
+  ShowWindowCall, ThemeReply, dispatchCall } from './Wire';
 import { HostStubs } from './HostStubs';
 
 export class Host extends HostStubs {
@@ -20,6 +20,15 @@ export class Host extends HostStubs {
   insetBottom: number = 0;
   insetRight: number = 0;
   keyboard: number = 0;
+  // The field the keyboard edits: Go says where it is and what it holds,
+  // and the page puts a see-through TextInput there, which takes the keys.
+  inputActive: boolean = false;
+  inputX: number = 0;
+  inputY: number = 0;
+  inputWidth: number = 0;
+  inputHeight: number = 0;
+  inputText: string = '';
+  private inputId: number = 0;
   // The window's background, as 0xAARRGGBB, and the rate frames come at.
   background: number = 0xff000000;
   fps: number = 0;
@@ -59,6 +68,40 @@ export class Host extends HostStubs {
   // display's own when it asks for none.
   setFrameRate(c: SetFrameRateCall): void {
     this.fps = c.fps;
+  }
+
+  // setTextInput is Go asking for the keyboard, or telling it to go.
+  setTextInput(c: SetTextInputCall): void {
+    if (!c.active) {
+      this.inputId = 0;
+      this.inputActive = false;
+      return;
+    }
+    this.inputId = c.id;
+    this.inputActive = true;
+    this.inputX = c.x;
+    this.inputY = c.y;
+    this.inputWidth = c.width;
+    this.inputHeight = c.height;
+    this.inputText = c.text;
+  }
+
+  // replaceText is the user's edit: what the field holds now, which Go puts
+  // in place of the document it gave the host.
+  replaceText(text: string): void {
+    if (this.inputId === 0 || text === this.inputText) {
+      return;
+    }
+    const base = this.inputText.length;
+    this.inputText = text;
+    this.send(Event.textReplace(this.inputId, true, 0, base, text));
+  }
+
+  // command is a key the field takes as an action, as Enter or Delete.
+  command(name: string): void {
+    if (this.inputId !== 0) {
+      this.send(Event.textCommand(this.inputId, name));
+    }
   }
 
   // requestFrame notes that Go has something to draw: the display's next
