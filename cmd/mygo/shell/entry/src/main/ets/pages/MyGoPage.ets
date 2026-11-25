@@ -67,9 +67,10 @@ export struct MyGoPage {
       res.setResponseMimeType(r.mime);
     }
     const headers: Array<Header> = [];
-    const keys = Object.keys(r.header);
+    const all: Record<string, string[]> = r.header ?? {};
+    const keys = Object.keys(all);
     for (let i = 0; i < keys.length; i++) {
-      const values = r.header[keys[i]];
+      const values = all[keys[i]];
       for (let j = 0; j < values.length; j++) {
         const h: Header = { headerKey: keys[i], headerValue: values[j] };
         headers.push(h);
@@ -79,8 +80,12 @@ export struct MyGoPage {
       res.setResponseHeader(headers);
     }
     res.setResponseEncoding('utf-8');
-    const bytes = new util.Base64Helper().decodeSync(r.body);
-    res.setResponseData(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
+    if (r.body !== '') {
+      const bytes = new util.Base64Helper().decodeSync(r.body);
+      res.setResponseData(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
+    } else {
+      res.setResponseData(new ArrayBuffer(0));
+    }
     return res;
   }
 
@@ -88,6 +93,21 @@ export struct MyGoPage {
   // schemes the app handles itself. The host answers at once, so Go serves it
   // here and now.
   intercept(event: OnInterceptRequestEvent): WebResourceResponse {
+    try {
+      return this.serve(event);
+    } catch (e) {
+      const err = e as BusinessError;
+      console.error(`MYGOWEB intercept ${event.request.getRequestUrl()}: ${err.message}`);
+      const failed = new WebResourceResponse();
+      failed.setResponseCode(500);
+      failed.setReasonMessage('Internal Server Error');
+      failed.setResponseMimeType('text/plain');
+      failed.setResponseData(new ArrayBuffer(0));
+      return failed;
+    }
+  }
+
+  serve(event: OnInterceptRequestEvent): WebResourceResponse {
     const req = event.request;
     const list = req.getRequestHeader();
     const headers: Array<Header> = [];

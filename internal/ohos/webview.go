@@ -447,6 +447,10 @@ func (r *schemeResponder) Fail(error) {
 // schemeJSON is what the host takes for a response: status, header, mime and
 // the body in base64.
 func schemeJSON(status int, header map[string][]string, body []byte) string {
+	if header == nil {
+		// The host takes an object, not a null.
+		header = map[string][]string{}
+	}
 	msg := struct {
 		Status int                 `json:"status"`
 		Reason string              `json:"reason"`

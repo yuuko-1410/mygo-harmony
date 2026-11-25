@@ -248,6 +248,14 @@ struct Index {
 
   aboutToAppear(): void {
     console.info('MYGOBOOT index appears');
+    try {
+      this.start()
+    } catch (e) {
+      console.error(`MYGOBOOT failed: ${e}`);
+    }
+  }
+
+  start(): void {
     windowStageRef = AppStorage.get<window.WindowStage>('windowStage');
     const d = display.getDefaultDisplaySync();
     native.setTextInputListener((json: string) => {
