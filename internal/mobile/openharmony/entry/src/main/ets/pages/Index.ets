@@ -134,8 +134,22 @@ struct Index {
         .width(this.inputActive && this.inputWidth > 0 ? this.inputWidth : 200)
         .height(this.inputActive && this.inputHeight > 0 ? this.inputHeight : 40)
         .backgroundColor('#00000000')
-        .onChange((value: string) => {
-          host.replaceText(value);
+        // The app draws the text and the caret: the field only takes the
+        // keys, and shows where it is being edited.
+        .fontColor('#00000000')
+        .caretColor('#00000000')
+        .onChange((value: string, preview?: PreviewText) => {
+          // A composing input method marks its text; the rest is the edit.
+          if (preview !== undefined && preview.value.length > 0) {
+            // ArkUI's value leaves the composing text out: the field would
+            // hold it where the preview says.
+            const pv = preview.value;
+            const full = value.includes(pv) ? value :
+              value.substring(0, preview.offset) + pv + value.substring(preview.offset);
+            host.compose(full, pv, preview.offset);
+          } else {
+            host.replaceText(value);
+          }
         })
         .onSubmit(() => {
           host.command('enter');

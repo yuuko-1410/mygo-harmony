@@ -29,6 +29,11 @@ export class Host extends HostStubs {
   inputHeight: number = 0;
   inputText: string = '';
   private inputId: number = 0;
+  // Whether an input method is composing: its text is marked, not yet the
+  // document's.
+  private composing: boolean = false;
+  // What the document Go holds was, when the composing started.
+  private markBase: number = 0;
   // The window's background, as 0xAARRGGBB, and the rate frames come at.
   background: number = 0xff000000;
   fps: number = 0;
@@ -86,15 +91,38 @@ export class Host extends HostStubs {
     this.inputText = c.text;
   }
 
+  // compose is an input method's text as it is typed: marked, not yet the
+  // document's. Text is what the field holds, of which preview is the part
+  // being composed, starting at offset.
+  compose(text: string, preview: string, offset: number): void {
+    if (this.inputId === 0) {
+      return;
+    }
+    if (!this.composing) {
+      this.composing = true;
+      this.markBase = this.inputText.length;
+    }
+    this.inputText = text;
+    this.send(Event.textMark(this.inputId, true, 0, this.markBase, text, offset, offset + preview.length));
+  }
+
   // replaceText is the user's edit: what the field holds now, which Go puts
-  // in place of the document it gave the host.
+  // in place of the document it gave the host, or of the text it marked
+  // while it was composing.
   replaceText(text: string): void {
     if (this.inputId === 0 || text === this.inputText) {
       return;
     }
-    const base = this.inputText.length;
+    const composing = this.composing;
+    const base = composing ? this.markBase : this.inputText.length;
+    this.composing = false;
     this.inputText = text;
-    this.send(Event.textReplace(this.inputId, true, 0, base, text));
+    if (composing) {
+      // In place of the marked text, which Go holds.
+      this.send(Event.textReplace(this.inputId, false, 0, 0, text));
+    } else {
+      this.send(Event.textReplace(this.inputId, true, 0, base, text));
+    }
   }
 
   // command is a key the field takes as an action, as Enter or Delete.

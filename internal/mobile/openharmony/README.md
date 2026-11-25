@@ -93,9 +93,12 @@ reaches `libnative_drawing` through purego, so there is no pango to miss.
 The insets are the window's own — zero in a floating window, which is what
 the 2in1 gives — and whether the core moves a plain window's content by them
 is untested: there is no keyboard and no full-screen bar here to move it.
-The keyboard replaces the whole document on every change (`TextReplace`
-with the field's whole text): no marked text, so no composing input method,
-and no selection or delete/arrow commands. Nothing draws in a window's child
+An input method's composing text goes as `TextMark`, and its commit replaces
+the marked text (`TextReplace` with no range), which is what the protocol
+describes. The field's own text and caret are transparent: the app draws
+both, the field only takes the keys. Not yet: selection, `TextDelete` for
+backspace, and the arrow commands — and the composing text is untested,
+since the harness that types here commits text instead of composing. Nothing draws in a window's child
 views (`PlaceViews`), and there is no web view, no tabs, no accessibility
 tree.
 
