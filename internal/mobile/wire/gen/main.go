@@ -1,6 +1,6 @@
-// Command gen writes the messages of spec.go for the three sides: Go
-// (../msgs.go), Swift (the iOS host's Wire.swift) and Kotlin (the Android
-// host's Wire.kt).
+// Command gen writes the messages of spec.go for the four sides: Go
+// (../msgs.go), Swift (the iOS host's Wire.swift), Kotlin (the Android
+// host's Wire.kt) and ArkTS (the OpenHarmony host's Wire.ets).
 package main
 
 import (
@@ -19,10 +19,12 @@ const (
 	goOut     = "msgs.go"
 	swiftOut  = "../ios/Sources/MyGoHost/Wire.swift"
 	kotlinOut = "../android/mygo/src/main/java/dev/mygo/Wire.kt"
+	arktsOut  = "../openharmony/entry/src/main/ets/mygo/Wire.ets"
+	stubsOut  = "../openharmony/entry/src/main/ets/mygo/HostStubs.ets"
 )
 
 func main() {
-	out := map[string][]byte{goOut: goSource(), swiftOut: swiftSource(), kotlinOut: kotlinSource()}
+	out := map[string][]byte{goOut: goSource(), swiftOut: swiftSource(), kotlinOut: kotlinSource(), arktsOut: arktsSource(), stubsOut: arktsHostStubsSource()}
 	for path, b := range out {
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			log.Fatal(err)

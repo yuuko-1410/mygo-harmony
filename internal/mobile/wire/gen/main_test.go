@@ -10,7 +10,7 @@ import (
 // The generated files are what the spec makes: run go generate in
 // internal/mobile/wire after changing it.
 func TestUpToDate(t *testing.T) {
-	for path, want := range map[string][]byte{goOut: goSource(), swiftOut: swiftSource(), kotlinOut: kotlinSource()} {
+	for path, want := range map[string][]byte{goOut: goSource(), swiftOut: swiftSource(), kotlinOut: kotlinSource(), arktsOut: arktsSource(), stubsOut: arktsHostStubsSource()} {
 		got, err := os.ReadFile(filepath.Join("..", path))
 		if err != nil {
 			t.Fatal(err)
