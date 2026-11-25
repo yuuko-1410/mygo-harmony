@@ -68,6 +68,7 @@ struct Index {
     });
     this.sync.start();
     window.getLastWindow(this.getUIContext().getHostContext()).then((w: window.Window) => {
+      host.sysWindow = w;
       this.measure(w);
       // The bars, the cutout and the keyboard come and go.
       w.on('avoidAreaChange', () => {

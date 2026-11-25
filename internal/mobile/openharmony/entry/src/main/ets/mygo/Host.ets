@@ -5,11 +5,13 @@
 
 import promptAction from '@ohos.promptAction';
 import webview from '@ohos.web.webview';
+import vibrator from '@ohos.vibrator';
+import window from '@ohos.window';
 import { PromptAction } from '@ohos.arkui.UIContext';
 import { BusinessError } from '@ohos.base';
 import { AppInfoReply, BatteryReply, CreateWindowCall, CreateWindowReply, Event, FirstFrameCall,
   LoadHTMLCall, LoadURLCall, MessageBoxCall, RequestFrameCall, ScreenReply, SetBackgroundCall, SetFrameRateCall, SetTextInputCall,
-  EvalCall, GoBackCall, GoForwardCall, ReloadCall, SetTitleCall, SetZoomCall, ShowWindowCall,
+  EvalCall, GoBackCall, HapticCall, KeepAwakeCall, SetSystemBarsCall, GoForwardCall, ReloadCall, SetTitleCall, SetZoomCall, ShowWindowCall,
   StopLoadingCall, ThemeReply, dispatchCall } from './Wire';
 import { HostStubs } from './HostStubs';
 
@@ -47,6 +49,9 @@ export class Host extends HostStubs {
   private webSrc: string = '';
   private webHTML: string = '';
   private webBase: string = '';
+  // The page's window, for what the system does to it: bars, the screen
+  // staying on.
+  sysWindow: window.Window | null = null;
   // The system's dialogs, which the page hands over: the host answers Go
   // with what the user chose.
   prompt: PromptAction | null = null;
@@ -275,6 +280,49 @@ export class Host extends HostStubs {
       // Dismissed: the cancel button, as a phone's alert does.
       this.send(Event.messageBoxResult(c.req, c.cancelID));
     });
+  }
+
+  // keepAwake keeps the screen on while the app shows.
+  keepAwake(c: KeepAwakeCall): void {
+    const w = this.sysWindow;
+    if (w === null) {
+      return;
+    }
+    w.setWindowKeepScreenOn(c.on).then(() => {
+      console.info(`mygo: keep awake ${c.on}`);
+    }).catch((e: BusinessError) => {
+      console.error(`mygo: keep awake: ${e.message}`);
+    });
+  }
+
+  // setSystemBars sets the icons of the system's bars and hides them.
+  setSystemBars(c: SetSystemBarsCall): void {
+    const w = this.sysWindow;
+    if (w === null) {
+      return;
+    }
+    if (c.hidden) {
+      w.setWindowSystemBarEnable([]).catch((e: BusinessError) => {
+        console.error(`mygo: hide the bars: ${e.message}`);
+      });
+      return;
+    }
+    const dark = c.style === 'light';
+    w.setWindowSystemBarProperties({
+      statusBarContentColor: dark ? '#000000' : '#ffffff',
+      navigationBarContentColor: dark ? '#000000' : '#ffffff',
+    }).catch((e: BusinessError) => {
+      console.error(`mygo: the bars' colours: ${e.message}`);
+    });
+  }
+
+  // haptic is the system's tap, or its buzz for an error.
+  haptic(c: HapticCall): void {
+    try {
+      vibrator.startVibration({ type: 'time', duration: 20 }, { id: 0, usage: 'touch' });
+    } catch (e) {
+      console.error(`mygo: haptic: ${e}`);
+    }
   }
 
   // requestFrame notes that Go has something to draw: the display's next
