@@ -91,7 +91,16 @@ export class Host extends HostStubs {
 
   firstFrame(c: FirstFrameCall): void {}
 
-  setTitle(c: SetTitleCall): void {}
+  // setTitle is the window's title, which the system's title bar shows.
+  setTitle(c: SetTitleCall): void {
+    const w = this.sysWindow;
+    if (w === null) {
+      return;
+    }
+    w.setWindowTitle(c.title).catch((e: BusinessError) => {
+      console.error(`mygo: title: ${e.message}`);
+    });
+  }
 
   // loadURL and loadHTML are what the page shows; the rest drive it.
   loadURL(c: LoadURLCall): void {

@@ -92,6 +92,8 @@ takes the first typeface that really maps the rune (a check, not a hope).
   XComponent goes while a page shows: a surface is a layer of its own, over
   ArkUI's, and the page would be under it. A page needs
   `ohos.permission.INTERNET` in the app's `module.json5`;
+- `SetTitle`, through the window's own title: no error, the bar's text
+  unverified from a terminal;
 - the small calls of the system: `KeepAwake` (`setWindowKeepScreenOn`),
   `SetSystemBars` (the bars' icon colour, or hiding them), `Haptic`
   (the vibrator), `NetworkStatus` and the clipboard. The clipboard is read
