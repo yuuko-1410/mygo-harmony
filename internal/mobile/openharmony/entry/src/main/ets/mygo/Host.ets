@@ -82,6 +82,7 @@ export class Host extends HostStubs {
       this.inputActive = false;
       return;
     }
+    console.info(`mygo: field ${c.id} doc=${c.document} text=${c.text} sel=${c.selStart},${c.selEnd} base=${c.base}`);
     this.inputId = c.id;
     this.inputActive = true;
     this.inputX = c.x;
@@ -103,6 +104,7 @@ export class Host extends HostStubs {
       this.markBase = this.inputText.length;
     }
     this.inputText = text;
+    console.info(`mygo: compose text=${text} preview=${preview} offset=${offset}`);
     this.send(Event.textMark(this.inputId, true, 0, this.markBase, text, offset, offset + preview.length));
   }
 
@@ -113,6 +115,7 @@ export class Host extends HostStubs {
     if (this.inputId === 0 || text === this.inputText) {
       return;
     }
+    console.info(`mygo: replace text=${text} composing=${this.composing}`);
     const composing = this.composing;
     const base = composing ? this.markBase : this.inputText.length;
     this.composing = false;

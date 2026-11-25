@@ -93,6 +93,10 @@ reaches `libnative_drawing` through purego, so there is no pango to miss.
 The insets are the window's own — zero in a floating window, which is what
 the 2in1 gives — and whether the core moves a plain window's content by them
 is untested: there is no keyboard and no full-screen bar here to move it.
+The host logs what the field gives it (`mygo: field`, `mygo: compose`,
+`mygo: replace`, under `A03D00/.../JSAPP`): with the log, typing in the field
+says whether the input method composed or committed.
+
 An input method's composing text goes as `TextMark`, and its commit replaces
 the marked text (`TextReplace` with no range), which is what the protocol
 describes. The field's own text and caret are transparent: the app draws
