@@ -2,6 +2,44 @@
 
 Status of the port in this tree, and what the platform layer has to provide.
 
+## This tree is a fork
+
+`mygo-harmony` is a fork of `egoist/mygo` that adds this port, and has two
+branches:
+
+- `main` mirrors `upstream/main` and takes no commit of ours of its own.
+- `ohos-port` carries the port, rebased onto `main`.
+
+```sh
+sh scripts/sync-upstream.sh
+```
+
+does the whole round: fetch `upstream`, fast-forward `main` here and on the
+fork, rebase `ohos-port`, push it with `--force-with-lease`. It never checks
+`main` out, so a script that lives on `ohos-port` alone survives its own run.
+Turn `git config --global rerere.enabled true` on first: upstream's edits to
+`ui/gpu_*.go` and `cmd/mygo/*.go` come back around, and it resolves them the
+second time alone.
+
+Keep what the port does to files upstream owns as small as it is. Everything
+in a file of its own (`internal/ohos/`, `*_openharmony.go`) costs a rebase
+nothing; every hunk of a file upstream also edits is a conflict later.
+
+The module path stays `github.com/egoist/mygo` in `ohos-port`'s own commits,
+so they replay onto upstream without dragging 1479 rewritten files through
+every rebase. A release that needs the fork's path gets it in one commit kept
+at the tip, regenerated after each rebase:
+
+```sh
+git commit --allow-empty -m "harmony: rename the module"   # once
+sh scripts/harmony-module.sh                              # after each rebase
+```
+
+It is also the one commit to drop when sending a patch upstream: what sits
+under it is already typed against upstream's own path. Tag a release at the
+tip, `v0.10.0-ohos.1`, so `go install …/cmd/mygo@v0.10.0-ohos.1` reads the
+renamed module.
+
 ## Shape
 
 A HarmonyOS app is an ArkTS UIAbility. MyGo runs as a native library inside

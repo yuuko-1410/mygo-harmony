@@ -1,5 +1,11 @@
 # AGENTS.md
 
+> **This is `mygo-harmony`**, a fork of `egoist/mygo` that adds
+> HarmonyOS/OpenHarmony. `main` mirrors upstream and takes no commit of ours;
+> `ohos-port` carries the port and is rebased onto it. Read "This tree is a
+> fork" in [docs/ohos-port.md](docs/ohos-port.md) before rebasing, and run
+> `sh scripts/sync-upstream.sh` to sync.
+
 MyGo is a desktop application framework in Go. Windows show web pages in the
 system webview (WKWebView on macOS, WebKitGTK on Linux, WebView2 on Windows),
 with typed Go ↔ TypeScript IPC, or native UI that MyGo draws itself (package
