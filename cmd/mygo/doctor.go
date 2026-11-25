@@ -116,6 +116,9 @@ func runDoctor(args []string) error {
 	for _, l := range androidDoctorLines(probeAndroid()) {
 		l.print()
 	}
+	for _, l := range ohosDoctorLines() {
+		l.print()
+	}
 
 	if !ok {
 		return fmt.Errorf("some checks failed")

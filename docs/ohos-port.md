@@ -91,15 +91,23 @@ text bug from guesswork into a five-minute fix.
 
 ## Building an app
 
-The tool does it (`cmd/mygo/ohos.go`):
+The tool does it (`cmd/mygo/ohos.go`, `cmd/mygo/ohos_init.go`):
 
 ```sh
 go build -o mygo ./cmd/mygo
 
-mygo ohos doctor            # the Go toolchain, the SDK, devecocli, a device
-mygo ohos build <app dir>   # libapp.a, then the HAP
-mygo ohos run <app dir>     # and install it, and start it
+mygo doctor                      # says whether the toolchain is there
+mygo build -platform ohos        # a signed .hap in dist/ohos
+mygo dev -platform ohos          # installs it, runs it, follows its log
+mygo ohos run <app dir>          # the same, without a watched session
+mygo ohos init -hap <dir> ...    # a HAP project of its own, to keep
 ```
+
+The HAP project is generated, as Android's Gradle project is: `mygo build`
+writes it into `<app>/.mygo/ohos`, and `mygo dev` into
+`<app>/.mygo/dev/ohos/project`, from the shell the tool carries
+(`cmd/mygo/shell`). Nothing of it is checked in. `-hap` builds in a project
+of your own instead, such as the `mygo-ohos` this port was made with.
 
 `-hap` says which HAP project to build; without it the tool takes the one
 next to the app (a directory holding `entry/src/main/cpp/CMakeLists.txt`).

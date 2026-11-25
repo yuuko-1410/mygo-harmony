@@ -1005,6 +1005,9 @@ func mobilePlatform(p string) (func(*Config, buildOptions) ([]string, error), bo
 	case "ios/simulator":
 		return func(c *Config, o buildOptions) ([]string, error) { return buildIOS(c, o, true) }, true
 	}
+	if p == "ohos" || p == "harmony" || strings.HasPrefix(p, "ohos/") {
+		return buildOHOS, true
+	}
 	if p == "android" || strings.HasPrefix(p, "android/") {
 		_, arch, _ := strings.Cut(p, "/")
 		return func(c *Config, o buildOptions) ([]string, error) { return buildAndroid(c, o, arch) }, true

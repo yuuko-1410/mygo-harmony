@@ -64,7 +64,7 @@ keep it: the app's own setting is left as it is.`)
 	port := flags.Int("port", 5174, "with -web, the port to serve the app at, or the next free one")
 	openPage := flags.Bool("open", true, "with -web, open the app in the browser")
 	lang := flags.String("lang", "", "run the app in this language (as de, or the pseudo locales en-XA and ar-XB), without keeping it")
-	platform := flags.String("platform", "", "develop the app on a phone: ios (the simulator) or android (a device or an emulator)")
+	platform := flags.String("platform", "", "develop the app on a phone: ios (the simulator), android (a device or an emulator) or ohos (a HarmonyOS device)")
 	device := flags.String("device", "", "with -platform, what to run on (mygo devices lists them): an iOS simulator or device (name or UDID), an Android device (adb serial) or emulator, which it starts")
 	background := flags.Bool("background", false, "start the app, and again after each rebuild, without bringing it to the front")
 	if err := flags.Parse(args); err != nil {
@@ -106,8 +106,12 @@ keep it: the app's own setting is left as it is.`)
 			}
 			return err
 		}
+	case "ohos":
+		if s.device, err = ohosRunTarget(*device); err != nil {
+			return err
+		}
 	default:
-		return fmt.Errorf("unknown platform %q: dev takes ios or android", *platform)
+		return fmt.Errorf("unknown platform %q: dev takes ios, android or ohos", *platform)
 	}
 	if *background {
 		s.env = append(s.env, "MYGO_DEV_BACKGROUND=1")
