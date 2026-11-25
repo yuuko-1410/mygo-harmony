@@ -152,7 +152,7 @@ func ohosHAP(appDir, hapFlag string, g toolchain, d sdk, run bool) (string, erro
 	if _, err := ohosArchive(appDir, g.path, d); err != nil {
 		return "", err
 	}
-	if err := ohosCopy(filepath.Join(appDir, "libapp.a"), filepath.Join(hapDir, "entry/src/main/cpp/libapp.a")); err != nil {
+	if err := ohosCopy(filepath.Join(appDir, ".mygo", "libapp.a"), filepath.Join(hapDir, "entry/src/main/cpp/libapp.a")); err != nil {
 		return "", err
 	}
 	t.set("building the HAP (hvigor)")
@@ -362,9 +362,14 @@ func ohosSource() string {
 	return ""
 }
 
-// ohosArchive builds the app as the c-archive the HAP links.
+// ohosArchive builds the app as the c-archive the HAP links, inside the
+// app's .mygo, where builds keep their work: the app's own directory holds
+// its source.
 func ohosArchive(appDir, goTool string, d sdk) (string, error) {
-	lib := filepath.Join(appDir, "libapp.a")
+	lib := filepath.Join(appDir, ".mygo", "libapp.a")
+	if err := os.MkdirAll(filepath.Dir(lib), 0o755); err != nil {
+		return "", err
+	}
 	cc := fmt.Sprintf("%s --target=aarch64-linux-ohos --sysroot=%s/sysroot -D__MUSL__", d.clang, d.dir)
 	cmd := exec.Command(goTool, "build", "-buildmode=c-archive", "-o", lib, ".")
 	cmd.Dir = appDir
@@ -592,7 +597,7 @@ func (s *devSession) buildOhosDev(ctx context.Context, c, dc *Config, t *task, o
 	if _, err := ohosArchive(s.root, g.path, d); err != nil {
 		return "", err
 	}
-	if err := ohosCopy(filepath.Join(s.root, "libapp.a"), filepath.Join(proj, "entry/src/main/cpp/libapp.a")); err != nil {
+	if err := ohosCopy(filepath.Join(s.root, ".mygo", "libapp.a"), filepath.Join(proj, "entry/src/main/cpp/libapp.a")); err != nil {
 		return "", err
 	}
 	t.set("building the HAP (hvigor)")
