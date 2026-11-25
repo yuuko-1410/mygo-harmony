@@ -317,13 +317,7 @@ func ohosModule(appDir, goTool string) error {
 	if _, err := os.Stat(filepath.Join(dir, "backend_ohos.go")); err == nil {
 		return nil
 	}
-	fork := ""
-	if here, err := os.Executable(); err == nil {
-		_ = here
-	}
-	if src := os.Getenv("MYGO_SOURCE"); src != "" {
-		fork = src
-	}
+	fork := ohosSource()
 	if fork == "" {
 		fork = "<the checkout of MyGo with the OpenHarmony backend>"
 	}
@@ -333,7 +327,39 @@ Point the app at the port, and tidy:
 
 	cd %s
 	go mod edit -replace github.com/egoist/mygo=%s
-	go mod tidy`, dir, appDir, fork)
+	go mod tidy
+
+An app made by mygo init -mygo <that checkout> already points at it.`, dir, appDir, fork)
+}
+
+// ohosSource finds the checkout of MyGo the tool was built from, which is the
+// one with the OpenHarmony backend: the tool sits in it, as go build -o mygo
+// ./cmd/mygo makes it, or MYGO_SOURCE names it.
+func ohosSource() string {
+	has := func(dir string) bool {
+		_, err := os.Stat(filepath.Join(dir, "backend_ohos.go"))
+		return err == nil
+	}
+	if src := os.Getenv("MYGO_SOURCE"); src != "" {
+		if has(src) {
+			return src
+		}
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	dir := filepath.Dir(exe)
+	for i := 0; i < 3; i++ {
+		if has(dir) {
+			return dir
+		}
+		dir = filepath.Dir(dir)
+	}
+	if wd, err := os.Getwd(); err == nil && has(wd) {
+		return wd
+	}
+	return ""
 }
 
 // ohosArchive builds the app as the c-archive the HAP links.
