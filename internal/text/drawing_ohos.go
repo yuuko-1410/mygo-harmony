@@ -53,7 +53,8 @@ var (
 	ohFontGetPathForGlyph func(uintptr, uint16, uintptr) int32
 
 	ohFontMgrCreate           func() uintptr
-	ohFontMgrMatchFamilyStyle func(uintptr, *byte, ohFontStyle) uintptr
+	ohFontMgrMatchFamilyStyle          func(uintptr, *byte, ohFontStyle) uintptr
+	ohFontMgrMatchFamilyStyleCharacter func(uintptr, *byte, ohFontStyle, *byte, uint32) uintptr
 	ohTypefaceDestroy         func(uintptr)
 	ohTypefaceFromFile        func(*byte, int32) uintptr
 	ohFontMgrGetFamilyCount   func(uintptr) int32
@@ -109,6 +110,7 @@ func loadDrawing() error {
 		reg(&ohFontGetPathForGlyph, "OH_Drawing_FontGetPathForGlyph")
 		reg(&ohFontMgrCreate, "OH_Drawing_FontMgrCreate")
 		reg(&ohFontMgrMatchFamilyStyle, "OH_Drawing_FontMgrMatchFamilyStyle")
+		reg(&ohFontMgrMatchFamilyStyleCharacter, "OH_Drawing_FontMgrMatchFamilyStyleCharacter")
 		reg(&ohTypefaceDestroy, "OH_Drawing_TypefaceDestroy")
 		reg(&ohTypefaceFromFile, "OH_Drawing_TypefaceCreateFromFile")
 		reg(&ohFontMgrGetFamilyCount, "OH_Drawing_FontMgrGetFamilyCount")

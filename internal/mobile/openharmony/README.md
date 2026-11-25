@@ -43,6 +43,17 @@ made no renderer at all. `nativeWindow` (in `window.go`) is the question that
 should have been asked, and `openharmony` (in `ohos.go`) is how a build knows
 it is this platform when the GOOS cannot say so.
 
+## Chinese draws because of the font files
+
+The platform's font manager knows ten families — HarmonyOS-Sans at its weights,
+serif, monospace, notdef — and none of them has a Han character:
+`OH_Drawing_FontTextToGlyphs` maps 「中」 to nothing, and
+`OH_Drawing_FontMgrMatchFamilyStyleCharacter`, the call meant for exactly
+this, hands back a typeface without it. `HarmonyOS_Sans_SC.ttf` in
+`/system/fonts` has it, and `OH_Drawing_TypefaceCreateFromFile` opens it. So
+the engine asks the manager's per-character match first, then the files, and
+takes the first typeface that really maps the rune (a check, not a hope).
+
 ## The protocol's two rules, learned the hard way
 
 - **Do not send `Ready`.** The backend posts it itself (`postReady`), before

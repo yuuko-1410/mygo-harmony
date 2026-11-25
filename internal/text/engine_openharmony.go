@@ -4,9 +4,9 @@ package text
 
 import (
 	"errors"
+	"math"
 	"os"
 	"path/filepath"
-	"math"
 	"strconv"
 	"unsafe"
 
@@ -22,11 +22,15 @@ import (
 // rasterization size is made on demand.
 type ohEngine struct {
 	shapeScratch
-	mgr    uintptr
-	fonts  map[string]*Font
-	scaled map[[2]uint64]uintptr
-	appFonts []FontFamily
+	mgr          uintptr
+	fonts        map[string]*Font
+	scaled       map[[2]uint64]uintptr
+	appFonts     []FontFamily
 	appTypefaces map[string]uintptr
+	// byRune holds the font the system matched for a character the styled
+	// one does not have, as Chinese, Japanese and Korean need.
+	byRune    map[string]*Font
+	cjkLoaded []uintptr
 }
 
 func newEngine() engine {
@@ -34,9 +38,10 @@ func newEngine() engine {
 		return &stubEngine{}
 	}
 	e := &ohEngine{
-		fonts:  map[string]*Font{},
-		scaled: map[[2]uint64]uintptr{},
+		fonts:        map[string]*Font{},
+		scaled:       map[[2]uint64]uintptr{},
 		appTypefaces: map[string]uintptr{},
+		byRune:       map[string]*Font{},
 	}
 	e.mgr = ohFontMgrCreate()
 	return e
@@ -76,6 +81,83 @@ func (e *ohEngine) font(style Style) *Font {
 	f.strikeThick = maxf(1, size/14)
 	e.fonts[key] = f
 	return f
+}
+
+// fontForRune returns a font of the style that has a glyph for r: the
+// styled one when it has, else the family the system matches the character
+// in, which is how a Latin font reaches Chinese, Japanese and Korean.
+func (e *ohEngine) fontForRune(r rune, style Style) *Font {
+	size := style.Size
+	if size <= 0 {
+		size = 14
+	}
+	weight := style.Weight
+	if weight == 0 {
+		weight = 400
+	}
+	key := strconv.FormatInt(int64(r), 16) + "|" + strconv.FormatFloat(float64(size), 'f', 1, 32) +
+		"|" + strconv.Itoa(weight) + "|" + strconv.FormatBool(style.Italic)
+	if f, ok := e.byRune[key]; ok {
+		return f
+	}
+	tf := e.reachTypeface(r)
+	f := e.font(style)
+	if tf != 0 && ohHasGlyph(tf, size, r) {
+		f = &Font{Size: size, native: tf, Ascent: f.Ascent, Descent: f.Descent, LineGap: f.LineGap}
+	}
+	e.byRune[key] = f
+	return f
+}
+
+// cjkFiles are where the platform keeps the fonts of Chinese, Japanese and
+// Korean, which its font manager does not always know by family.
+var cjkFiles = []string{
+	"/system/fonts/HarmonyOS_Sans_SC.ttf",
+	"/system/fonts/HarmonyOS_Sans_TC.ttf",
+	"/system/fonts/NotoSansCJK-Regular.ttc",
+	"/system/fonts/NotoSansSC-Regular.ttf",
+}
+
+// reachTypeface returns a typeface that has r, loaded from the platform's
+// font files when no family of the font manager does: those fonts are not
+// all in its list, and Chinese is usually one of them.
+func (e *ohEngine) reachTypeface(r rune) uintptr {
+	if e.cjkLoaded == nil {
+		e.cjkLoaded = []uintptr{}
+		for _, path := range cjkFiles {
+			if _, err := os.Stat(path); err != nil {
+				continue
+			}
+			c := append([]byte(path), 0)
+			if tf := ohTypefaceFromFile(&c[0], 0); tf != 0 {
+				e.cjkLoaded = append(e.cjkLoaded, tf)
+			}
+		}
+	}
+	for _, tf := range e.cjkLoaded {
+		if ohHasGlyph(tf, 14, r) {
+			return tf
+		}
+	}
+	return 0
+}
+
+// ohHasGlyph reports whether the typeface maps r to a glyph of its own.
+func ohHasGlyph(tf uintptr, size float32, r rune) bool {
+	if tf == 0 {
+		return false
+	}
+	one, _ := utf8Text([]rune{r})
+	if len(one) == 0 {
+		return false
+	}
+	font := ohFontCreate()
+	defer ohFontDestroy(font)
+	ohFontSetTextSize(font, size)
+	ohFontSetTypeface(font, tf)
+	g := make([]uint16, 2)
+	n := int(ohFontTextToGlyphs(font, unsafe.Pointer(&one[0]), uint32(len(one)), ohTextEncodingUTF8, &g[0], int32(len(g))))
+	return n > 0 && g[0] != 0
 }
 
 // fontFor returns an OH_Drawing_Font of f's typeface at size pixels.
@@ -164,7 +246,45 @@ func (e *ohEngine) shape(text []rune, style Style, spans []Span, width float32, 
 		gids := make([]uint16, len(text[s.start:s.end])+2)
 		n := int(ohFontTextToGlyphs(nf, unsafe.Pointer(&buf[0]), uint32(len(buf)),
 			ohTextEncodingUTF8, &gids[0], int32(len(gids))))
-		if n <= 0 || n > len(gids) {
+		unmapped := n <= 0 || n != len(text[s.start:s.end])
+		for i := 0; !unmapped && i < n; i++ {
+			unmapped = gids[i] == 0
+		}
+		if unmapped {
+			// The styled font cannot map these runes: the system's own
+			// fallback, a character at a time, can.
+			for k, r := range text[s.start:s.end] {
+				fb := e.fontForRune(r, s.style)
+				if fb == nil {
+					continue
+				}
+				one, _ := utf8Text([]rune{r})
+				if len(one) == 0 {
+					continue
+				}
+				nfb := e.fontFor(fb, fb.Size)
+				g2 := make([]uint16, 2)
+				m := int(ohFontTextToGlyphs(nfb, unsafe.Pointer(&one[0]), uint32(len(one)),
+					ohTextEncodingUTF8, &g2[0], int32(len(g2))))
+				if m <= 0 {
+					continue
+				}
+				w2 := make([]float32, m)
+				ohFontGetWidths(nfb, &g2[0], int32(m), &w2[0])
+				for i := 0; i < m; i++ {
+					adv := w2[i] + s.style.LetterSpacing
+					glyphs = append(glyphs, Glyph{
+						Font:    fb,
+						ID:      uint32(g2[i]),
+						Size:    fb.Size,
+						X:       pen,
+						Advance: adv,
+						Cluster: s.start + k,
+						Runes:   1,
+					})
+					pen += adv
+				}
+			}
 			continue
 		}
 		widths := make([]float32, n)
@@ -325,11 +445,7 @@ func ohFamily(list string) string {
 	return ""
 }
 
-
-
-
 var ohLineLogged bool
-
 
 // goString returns the NUL-terminated string at p.
 func goString(p *byte) string {
