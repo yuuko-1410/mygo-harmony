@@ -33,6 +33,15 @@ then `hvigorw assembleHap` (or `devecocli build`) in the app's project, whose
 `entry/src/main/cpp` is this directory and whose `module.json5` lists
 `pages/Index` first.
 
+## The protocol's two rules, learned the hard way
+
+- **Do not send `Ready`.** The backend posts it itself (`postReady`), before
+  what the host sent; a second one closes `App.readyCh` twice and Go aborts
+  with `close of closed channel`, before any of its output reaches the log.
+- **Pass a `Uint8Array`, not the `ArrayBuffer` it lies on.** `WireReader`
+  reads `buf.length` and indexes it: an ArrayBuffer gives `undefined`, every
+  call decodes as op 0, and every reply is nil.
+
 ## What is done
 
 - the Go side: `glue_ohos.go` (cgo, the `mygo_ohos_*` entry points), and the
@@ -51,17 +60,19 @@ then `hvigorw assembleHap` (or `devecocli build`) in the app's project, whose
 Verified on the device (MateBook Pro S, API 26): the app's c-archive builds
 (32.4 MB), `libentry.so` links, and the HAP builds, installs and launches.
 
+On the device the app now starts, and Go's own calls arrive: `AppInfo`,
+`Theme`, `CreateWindow` (14 KB of schemes and scripts), `ShowWindow`. The
+window appears, and the XComponent's surface reaches Go as `SurfaceChanged`.
+
 ## What is not
 
-The app aborts (SIGABRT) within a second of launch, before any line of Go
-reaches the log, so the shim or the archive's constructor is the suspect and
-not the host's answers. `MYGO init` does not print: either the module's `Init`
-is not reached, or the abort comes before it, from the c-archive's own
-`DT_INIT_ARRAY` constructor — the case CL 696635 (#13492) describes, where Go
-reads `argc`/`argv` a non-glibc loader never passed. That is the next thing to
-determine, by a `dlopen` of the same archive from a library that does load.
+No frame is drawn yet: Go asks for none (`RequestFrame` never comes), so the
+surface is never presented on. The text engine is Linux's pango, which
+OpenHarmony has no library for — the app logs `text will not show` — so text
+and the layout that waits on it are the first suspects, then whatever the
+`ui` renderer needs from `internal/gpu/gl`'s OpenHarmony files.
 
 The host answers a window, a surface, frames and touch. Everything else — the
 keyboard, the web view, tabs, accessibility, insets, the services — is
-`HostStubs` for now, which logs and does nothing; the calls exist in `Wire.ets`
-already, so each is a method of `Host.ets` away.
+`HostStubs` for now, which logs and does nothing; the calls exist in
+`Wire.ets` already, so each is a method of `Host.ets` away.

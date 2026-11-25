@@ -15,12 +15,19 @@ export class Host extends HostStubs {
   // Sends an event to Go: the page's native.event.
   send: (buf: Uint8Array) => void = (buf: Uint8Array) => {};
   private wanted: boolean = false;
+  // The surface, which may come before the window Go asks for.
+  private handle: number = 0;
+  private width: number = 0;
+  private height: number = 0;
 
   createWindow(c: CreateWindowCall): CreateWindowReply {
     this.windowId = c.id;
     const r = new CreateWindowReply();
     r.error = '';
     r.layer = 0;
+    if (this.handle !== 0) {
+      this.send(Event.surfaceChanged(this.windowId, this.handle, this.width, this.height, this.scale, 60));
+    }
     return r;
   }
 
@@ -78,6 +85,9 @@ export class Host extends HostStubs {
   // surface tells Go where to draw: the window ArkUI made, in pixels.
   surface(handle: number, width: number, height: number, scale: number): void {
     this.scale = scale;
+    this.handle = handle;
+    this.width = width;
+    this.height = height;
     if (this.windowId !== 0) {
       this.send(Event.surfaceChanged(this.windowId, handle, width, height, scale, 60));
     }
@@ -99,6 +109,12 @@ export class Host extends HostStubs {
 
   // call runs one call of Go, on the JS thread.
   call(buf: Uint8Array): Uint8Array | null {
-    return dispatchCall(this, buf);
+    try {
+      return dispatchCall(this, buf);
+    } catch (e) {
+      // A call the host answers badly must not take the app with it.
+      console.error(`mygo: a call failed: ${e}`);
+      return null;
+    }
   }
 }

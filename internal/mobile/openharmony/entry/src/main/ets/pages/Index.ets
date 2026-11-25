@@ -4,22 +4,25 @@ import display from '@ohos.display';
 import { Host } from '../mygo/Host';
 import { Event } from '../mygo/Wire';
 
+// ArkUI may build the page again, with a new struct: Go and its host are
+// one, on the module, not on the struct that comes and goes.
+let started: boolean = false;
+const host: Host = new Host();
+
 @Entry
 @Component
 struct Index {
-  private host: Host = new Host();
   private sync: displaySync.DisplaySync = displaySync.create();
-  private started: boolean = false;
 
   aboutToAppear(): void {
-    this.host.send = (buf: Uint8Array): void => {
+    host.send = (buf: Uint8Array): void => {
       native.event(buf);
     };
     const d = display.getDefaultDisplaySync();
-    this.host.scale = d.densityPixels;
+    host.scale = d.densityPixels;
     this.sync.setExpectedFrameRateRange({ expected: 60, min: 60, max: 120 });
     this.sync.on('frame', () => {
-      this.host.tick();
+      host.tick();
     });
     this.sync.start();
   }
@@ -35,19 +38,20 @@ struct Index {
         .width('100%')
         .height('100%')
         .onLoad(() => {
-          if (this.started) {
+          if (started) {
             return;
           }
-          this.started = true;
+          started = true;
           native.start(
-            (buf: Uint8Array): Uint8Array | null => this.host.call(buf),
+            (buf: Uint8Array): Uint8Array | null => host.call(buf),
             (handle: number, width: number, height: number, scale: number): void => {
-              this.host.surface(handle, width, height, scale === 1 ? this.host.scale : scale);
+              host.surface(handle, width, height, scale === 1 ? host.scale : scale);
             },
             (): void => {
               native.drain();
             });
-          native.event(Event.ready());
+          // Not Event.ready: the backend posts that itself (postReady), and
+          // a second one closes a channel twice.
           native.event(Event.active(true));
         })
         .onTouch((event: TouchEvent) => {
@@ -58,16 +62,16 @@ struct Index {
           try {
             switch (event.type) {
               case TouchType.Down:
-                this.host.touch(t.x, t.y, 'down');
+                host.touch(t.x, t.y, 'down');
                 break;
               case TouchType.Move:
-                this.host.touch(t.x, t.y, 'move');
+                host.touch(t.x, t.y, 'move');
                 break;
               case TouchType.Up:
-                this.host.touch(t.x, t.y, 'up');
+                host.touch(t.x, t.y, 'up');
                 break;
               default:
-                this.host.touch(t.x, t.y, 'cancel');
+                host.touch(t.x, t.y, 'cancel');
                 break;
             }
           } catch (e) {

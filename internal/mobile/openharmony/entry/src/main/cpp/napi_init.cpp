@@ -14,7 +14,7 @@
 #include <cstdlib>
 #include <cstring>
 
-#define LOG_DOMAIN 0xA0D002
+#define LOG_DOMAIN 0xD002  // hilog takes 0x0 to 0xFFFFF: a bigger one logs nothing
 #define LOG_TAG "MYGO"
 #define LOGI(fmt, ...) OH_LOG_Print(LOG_APP, LOG_INFO, LOG_DOMAIN, LOG_TAG, fmt, ##__VA_ARGS__)
 #define LOGE(fmt, ...) OH_LOG_Print(LOG_APP, LOG_ERROR, LOG_DOMAIN, LOG_TAG, fmt, ##__VA_ARGS__)
@@ -38,6 +38,10 @@ napi_ref g_dispatch = nullptr;   // (Uint8Array) => Uint8Array | null
 napi_ref g_surface = nullptr;    // (handle, width, height, scale) => void
 napi_threadsafe_function g_post = nullptr;
 OH_NativeXComponent *g_component = nullptr;
+// The window ArkUI made, which may come before start sets a listener.
+uint64_t g_handle = 0;
+double g_width = 0;
+double g_height = 0;
 
 // postJS runs on the JS thread: ArkTS drains the calls Go made.
 void postJS(napi_env env, napi_value cb, void *, void *) {
@@ -52,6 +56,9 @@ void postJS(napi_env env, napi_value cb, void *, void *) {
 
 // callSurface reports the window ArkUI made, or 0 when it is gone.
 void callSurface(uint64_t handle, double width, double height, double scale) {
+    g_handle = handle;
+    g_width = width;
+    g_height = height;
     if (g_env == nullptr || g_surface == nullptr) {
         return;
     }
@@ -70,7 +77,10 @@ void callSurface(uint64_t handle, double width, double height, double scale) {
         napi_create_double(g_env, args[i], &argv[i]);
     }
     if (cb != nullptr) {
-        napi_call_function(g_env, global, cb, 4, argv, &result);
+        napi_status st = napi_call_function(g_env, global, cb, 4, argv, &result);
+        if (st != napi_ok) {
+            LOGE("MYGO the host did not take the surface: %{public}d", static_cast<int>(st));
+        }
     }
     napi_close_handle_scope(g_env, scope);
 }
@@ -172,6 +182,11 @@ napi_value drain(napi_env, napi_callback_info) {
 // start begins Go. dispatch runs one call on the JS thread, onSurface
 // reports the window, and onDrain asks ArkTS to drain Go's calls.
 napi_value start(napi_env env, napi_callback_info info) {
+    static bool begun = false;
+    if (begun) {
+        return nullptr;  // the page was built again: Go runs once
+    }
+    begun = true;
     LOGI("MYGO start");
     size_t argc = 3;
     napi_value argv[3] = {nullptr, nullptr, nullptr};
@@ -188,12 +203,14 @@ napi_value start(napi_env env, napi_callback_info info) {
                                         &g_post) != napi_ok) {
         LOGE("MYGO no threadsafe function");
     }
+    if (g_handle != 0) {
+        callSurface(g_handle, g_width, g_height, 1);
+    }
     mygo_start_ohos();
     return nullptr;
 }
 
 napi_value Init(napi_env env, napi_value exports) {
-    LOGI("MYGO init");
     // ArkUI hands the XComponent to the module that made it, by name.
     napi_value xcomponent = nullptr;
     napi_valuetype t = napi_undefined;
@@ -228,19 +245,25 @@ extern "C" void mygo_ohos_call(uint8_t *msg, size_t len, uint8_t **reply, size_t
         return;
     }
     void *data = nullptr;
+    napi_value ab = nullptr;
     napi_value buf = nullptr;
-    if (napi_create_arraybuffer(g_env, len > 0 ? len : 1, &data, &buf) == napi_ok && data != nullptr) {
+    if (napi_create_arraybuffer(g_env, len > 0 ? len : 1, &data, &ab) == napi_ok && data != nullptr) {
         if (len > 0) {
             std::memcpy(data, msg, len);
         }
+        // The host reads Uint8Array, not the ArrayBuffer it lies on.
+        napi_create_typedarray(g_env, napi_uint8_array, len, ab, 0, &buf);
         napi_value dispatch = nullptr;
         napi_value global = nullptr;
         napi_value result = nullptr;
         napi_value argv[1] = {buf};
         napi_get_reference_value(g_env, g_dispatch, &dispatch);
         napi_get_global(g_env, &global);
-        if (napi_call_function(g_env, global, dispatch, 1, argv, &result) == napi_ok) {
+        napi_status st = napi_call_function(g_env, global, dispatch, 1, argv, &result);
+        if (st == napi_ok) {
             bytes(result, reply, replyLen);
+        } else {
+            LOGI("MYGO dispatch failed: %{public}d", static_cast<int>(st));
         }
     }
     napi_close_handle_scope(g_env, scope);
@@ -248,8 +271,12 @@ extern "C" void mygo_ohos_call(uint8_t *msg, size_t len, uint8_t **reply, size_t
 
 // What Go calls: a line the app wrote to its standard output or error.
 extern "C" void mygo_ohos_log(int error, uint8_t *line, size_t len) {
-    OH_LOG_Print(LOG_APP, error ? LOG_ERROR : LOG_INFO, LOG_DOMAIN, "Go", "%.*s", static_cast<int>(len),
-                 reinterpret_cast<const char *>(line));
+    // hilog prints %s as <private>: the line goes in a string it reads as is.
+    char buf[512];
+    size_t n = len < sizeof(buf) - 1 ? len : sizeof(buf) - 1;
+    std::memcpy(buf, line, n);
+    buf[n] = '\0';
+    OH_LOG_Print(LOG_APP, error ? LOG_ERROR : LOG_INFO, LOG_DOMAIN, "Go", "%{public}s", buf);
 }
 
 // What Go calls: ArkTS drains its calls, soon.
