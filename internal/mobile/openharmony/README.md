@@ -61,16 +61,17 @@ Verified on the device (MateBook Pro S, API 26): the app's c-archive builds
 (32.4 MB), `libentry.so` links, and the HAP builds, installs and launches.
 
 On the device the app now starts, and Go's own calls arrive: `AppInfo`,
-`Theme`, `CreateWindow` (14 KB of schemes and scripts), `ShowWindow`. The
-window appears, and the XComponent's surface reaches Go as `SurfaceChanged`.
+`Theme`, `CreateWindow` (14 KB of schemes and scripts), `ShowWindow`,
+`SetBackground`, and `FirstFrame` — the content drew, and the host showed
+what it drew. Text comes from `internal/text`'s OpenHarmony engine, which
+reaches `libnative_drawing` through purego, so there is no pango to miss.
 
 ## What is not
 
-No frame is drawn yet: Go asks for none (`RequestFrame` never comes), so the
-surface is never presented on. The text engine is Linux's pango, which
-OpenHarmony has no library for — the app logs `text will not show` — so text
-and the layout that waits on it are the first suspects, then whatever the
-`ui` renderer needs from `internal/gpu/gl`'s OpenHarmony files.
+Touch is wired but untried; the display's frames come from one
+`displaySync` at 60 Hz, not from what Go asks for (`SetFrameRate`), so an
+animation at 120 Hz draws at 60. Inset: the safe areas are all zero, and a
+keyboard is yet to cover anything.
 
 The host answers a window, a surface, frames and touch. Everything else — the
 keyboard, the web view, tabs, accessibility, insets, the services — is

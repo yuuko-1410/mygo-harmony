@@ -26,7 +26,7 @@ export class Host extends HostStubs {
     r.error = '';
     r.layer = 0;
     if (this.handle !== 0) {
-      this.send(Event.surfaceChanged(this.windowId, this.handle, this.width, this.height, this.scale, 60));
+      this.windowSize();
     }
     return r;
   }
@@ -89,8 +89,16 @@ export class Host extends HostStubs {
     this.width = width;
     this.height = height;
     if (this.windowId !== 0) {
-      this.send(Event.surfaceChanged(this.windowId, handle, width, height, scale, 60));
+      this.windowSize();
     }
+  }
+
+  // windowSize tells Go the window's size in DIPs, its scale and its
+  // insets, then where to draw: it draws nothing while it knows no size.
+  private windowSize(): void {
+    this.send(Event.surfaceChanged(this.windowId, this.handle, this.width, this.height, this.scale, 60));
+    this.send(Event.resized(this.windowId, this.width / this.scale, this.height / this.scale, this.scale,
+      0, 0, 0, 0, 0));
   }
 
   touch(x: number, y: number, phase: string): void {

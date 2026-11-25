@@ -1,4 +1,4 @@
-//go:build !(windows && (amd64 || arm64)) && !darwin && !(linux && !android && (amd64 || arm64)) && !js && !android
+//go:build !openharmony && !(windows && (amd64 || arm64)) && !darwin && !(linux && !openharmony && !android && (amd64 || arm64)) && !js && !android
 
 package text
 
