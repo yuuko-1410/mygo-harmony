@@ -93,8 +93,11 @@ takes the first typeface that really maps the rune (a check, not a hope).
   ArkUI's, and the page would be under it. A page needs
   `ohos.permission.INTERNET` in the app's `module.json5`;
 - the small calls of the system: `KeepAwake` (`setWindowKeepScreenOn`),
-  `SetSystemBars` (the bars' icon colour, or hiding them) and `Haptic`
-  (the vibrator);
+  `SetSystemBars` (the bars' icon colour, or hiding them), `Haptic`
+  (the vibrator), `NetworkStatus` and the clipboard. The clipboard is read
+  between frames and kept, because Go asks for it in the middle of a call
+  and the system's own read is asynchronous; writing also updates what is
+  kept, so a copy is read back at once;
 - the system's alerts: `MessageBox` shows ArkUI's dialog, and the button the
   user takes comes back as `MessageBoxResult`;
 - the insets of `Resized`, read from the window's avoid areas

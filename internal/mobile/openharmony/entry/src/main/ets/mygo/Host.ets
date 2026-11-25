@@ -6,12 +6,15 @@
 import promptAction from '@ohos.promptAction';
 import webview from '@ohos.web.webview';
 import vibrator from '@ohos.vibrator';
+import pasteboard from '@ohos.pasteboard';
+import connection from '@ohos.net.connection';
 import window from '@ohos.window';
 import { PromptAction } from '@ohos.arkui.UIContext';
 import { BusinessError } from '@ohos.base';
 import { AppInfoReply, BatteryReply, CreateWindowCall, CreateWindowReply, Event, FirstFrameCall,
   LoadHTMLCall, LoadURLCall, MessageBoxCall, RequestFrameCall, ScreenReply, SetBackgroundCall, SetFrameRateCall, SetTextInputCall,
-  EvalCall, GoBackCall, HapticCall, KeepAwakeCall, SetSystemBarsCall, GoForwardCall, ReloadCall, SetTitleCall, SetZoomCall, ShowWindowCall,
+  ClipboardTextReply, EvalCall, GoBackCall, HapticCall, KeepAwakeCall, NetworkStatusReply,
+  SetClipboardTextCall, SetSystemBarsCall, GoForwardCall, ReloadCall, SetTitleCall, SetZoomCall, ShowWindowCall,
   StopLoadingCall, ThemeReply, dispatchCall } from './Wire';
 import { HostStubs } from './HostStubs';
 
@@ -288,9 +291,7 @@ export class Host extends HostStubs {
     if (w === null) {
       return;
     }
-    w.setWindowKeepScreenOn(c.on).then(() => {
-      console.info(`mygo: keep awake ${c.on}`);
-    }).catch((e: BusinessError) => {
+    w.setWindowKeepScreenOn(c.on).catch((e: BusinessError) => {
       console.error(`mygo: keep awake: ${e.message}`);
     });
   }
@@ -323,6 +324,70 @@ export class Host extends HostStubs {
     } catch (e) {
       console.error(`mygo: haptic: ${e}`);
     }
+  }
+
+  // The clipboard's text is kept here: Go asks for it in the middle of a
+  // call, which cannot wait, so the system is read between frames and its
+  // answer lands here.
+  private clipText: string = '';
+  private clipOK: boolean = false;
+  private clipFrames: number = 0;
+
+  // clipboardText is what the system's clipboard held as of this frame.
+  clipboardText(): ClipboardTextReply {
+    const r = new ClipboardTextReply();
+    r.text = this.clipText;
+    r.ok = this.clipOK;
+    return r;
+  }
+
+  // setClipboardText puts text in the system's clipboard.
+  setClipboardText(c: SetClipboardTextCall): void {
+    this.clipText = c.text;
+    this.clipOK = c.text.length > 0;
+    try {
+      const data = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, c.text);
+      pasteboard.getSystemPasteboard().setData(data).catch((e: BusinessError) => {
+        console.error(`mygo: clipboard set: ${e.message}`);
+      });
+    } catch (e) {
+      console.error(`mygo: clipboard: ${e}`);
+    }
+  }
+
+  // readClipboard asks the system for the clipboard, a few frames apart.
+  private readClipboard(): void {
+    this.clipFrames++;
+    if (this.clipFrames % 20 !== 0) {
+      return;
+    }
+    pasteboard.getSystemPasteboard().getData().then((data: pasteboard.PasteData) => {
+      const text = data.getPrimaryText();
+      if (text !== undefined && text !== this.clipText) {
+        this.clipText = text;
+        this.clipOK = text.length > 0;
+      }
+    }).catch((e: BusinessError) => {
+      this.clipOK = false;
+    });
+  }
+
+  // networkStatus is whether the system is online, and whether it is
+  // metered.
+  networkStatus(): NetworkStatusReply {
+    const r = new NetworkStatusReply();
+    try {
+      const net = connection.getDefaultNetSync();
+      r.online = net !== undefined && net.netId !== 0;
+      const caps = connection.getNetCapabilitiesSync(net);
+      if (caps !== undefined) {
+        const bc = caps.bearerTypes;
+        r.metered = bc !== undefined && bc.length > 0 && bc[0] === connection.NetBearType.BEARER_CELLULAR;
+      }
+    } catch (e) {
+      r.online = false;
+    }
+    return r;
   }
 
   // requestFrame notes that Go has something to draw: the display's next
@@ -425,6 +490,7 @@ export class Host extends HostStubs {
 
   // tick runs at the display's refreshes: a frame Go asked for, or none.
   tick(): void {
+    this.readClipboard();
     if (this.wanted && this.windowId !== 0) {
       this.wanted = false;
       this.send(Event.frame(this.windowId));
