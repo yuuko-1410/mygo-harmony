@@ -6,6 +6,10 @@ import { picker } from '@kit.CoreFileKit';
 import { common } from '@kit.AbilityKit';
 import { deviceInfo } from '@kit.BasicServicesKit';
 import { windowIds } from './windows';
+import { webCommand } from './webs';
+import { webview } from '@kit.ArkWeb';
+import { MyGoPage } from './MyGoPage';
+import { webControllers } from './webs';
 import { ConfigurationConstant } from '@kit.AbilityKit';
 
 class Empty {}
@@ -63,6 +67,40 @@ function contentOf(title: string, text: string): notificationManager.Notificatio
 // XComponent, so the desktop manages them (title bar, moving, stacking).
 let windowStageRef: window.WindowStage | undefined = undefined;
 const subWindows: Map<number, window.Window> = new Map<number, window.Window>();
+
+// createWebWindow shows the page of a window MyGo makes: the host puts an
+// ArkUI Web component where a native UI window has its XComponent.
+async function createWebWindow(id: number, title: string): Promise<void> {
+  const stage = windowStageRef ?? AppStorage.get<window.WindowStage>('windowStage');
+  if (stage === undefined) {
+    return;
+  }
+  if (id === 0) {
+    // The first window is the app's own page, which shows the page instead
+    // of an XComponent when MyGo asks for one.
+    const main = stage.getMainWindowSync();
+    const density = display.getDefaultDisplaySync().densityPixels;
+    await main.resize(480 * density, 720 * density);
+    AppStorage.setOrCreate('webMode', true);
+    return;
+  }
+  const sub = await stage.createSubWindow(`mygo${id}`);
+  subWindows.set(id, sub);
+  windowIds.push(id);
+  console.info(`MYGOWEB create ${id}`);
+  await sub.setUIContent('pages/WebWindow');
+  const density = display.getDefaultDisplaySync().densityPixels;
+  await sub.resize(480 * density, 720 * density);
+  await sub.moveWindowTo((60 + id * 40) * density, (60 + id * 40) * density);
+  await sub.showWindow();
+  console.info(`MYGOWEB shown ${id}`);
+  sub.on('windowEvent', (event: window.WindowEventType): void => {
+    if (event === window.WindowEventType.WINDOW_DESTROYED) {
+      subWindows.delete(id);
+      native.windowClosed(id);
+    }
+  });
+}
 
 async function createSubWindow(id: number): Promise<void> {
   const stage = windowStageRef ?? AppStorage.get<window.WindowStage>('windowStage');
@@ -146,6 +184,14 @@ async function handleHost(ctx: common.UIAbilityContext, op: string, args: Record
     }
     return new Empty();
   }
+  if (op === 'web.create') {
+    await createWebWindow(args.id as number, (args.title ?? '') as string);
+    return new Empty();
+  }
+  if (op.startsWith('web.')) {
+    webCommand(args.id as number, op, args);
+    return new Empty();
+  }
   if (op === 'window.create') {
     await createSubWindow(args.id as number);
     return new Empty();
@@ -192,6 +238,7 @@ async function handleHost(ctx: common.UIAbilityContext, op: string, args: Record
 @Entry
 @Component
 struct Index {
+  @StorageLink('webMode') webMode: boolean = false;
   @State imeOn: boolean = false;
   @State imeText: string = '';
   @State imeX: number = 0;
@@ -200,6 +247,7 @@ struct Index {
   @State imeH: number = 1;
 
   aboutToAppear(): void {
+    console.info('MYGOBOOT index appears');
     windowStageRef = AppStorage.get<window.WindowStage>('windowStage');
     const d = display.getDefaultDisplaySync();
     native.setTextInputListener((json: string) => {
@@ -222,6 +270,15 @@ struct Index {
           native.hostReply(JSON.stringify({ id: id, error: String(e) }));
         });
     });
+    // The app's frontend is served at mygo://localhost/, a scheme of its
+    // own: the Web components must know it before they are made.
+    try {
+      webview.WebviewController.customizeSchemes([
+        { schemeName: 'mygo', isSupportCORS: true, isSupportFetch: true },
+      ]);
+    } catch (e) {
+      console.error(`MYGO schemes: ${e}`);
+    }
     try {
       native.start(getContext(this).filesDir, d.densityPixels);
     } catch (e) {
@@ -231,6 +288,9 @@ struct Index {
 
   build() {
     Stack() {
+      if (this.webMode) {
+        MyGoPage({ windowId: 0 })
+      } else {
       XComponent({ id: 'mygo', type: 'surface', libraryname: 'entry' })
         .width('100%')
         .height('100%')
@@ -261,6 +321,7 @@ struct Index {
           .onChange((v: string) => {
             native.textInputEvent(JSON.stringify({ text: v, composing: false, from: 0, to: 0 }));
           })
+      }
       }
     }
     .width('100%')

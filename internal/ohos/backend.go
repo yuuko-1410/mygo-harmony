@@ -159,6 +159,10 @@ func (b *backend) NewWindow(opts *platform.WindowOptions, h platform.WindowHandl
 	}
 	w.s = &surface{w: w, refresh: float64(time.Second) / float64(frameInterval())}
 
+	// A window with a page shows it instead of drawing a surface: the host
+	// puts an ArkUI Web component where the XComponent of the others is.
+	webWindow := !opts.Surface
+
 	kind, formName := readDevice()
 	log.Printf("ohos: form %s", formName)
 
@@ -170,9 +174,18 @@ func (b *backend) NewWindow(opts *platform.WindowOptions, h platform.WindowHandl
 	id := len(b.windows)
 	w.id = id
 	b.mu.Unlock()
-	if first {
+	switch {
+	case webWindow:
+		log.Printf("ohos: asking host for the window %d's page", id)
+		if _, err := callHost("web.create", map[string]any{"id": id, "title": opts.Title}); err != nil {
+			log.Printf("ohos: web.create failed: %v", err)
+		}
+		w.web = newWeb(w)
+		// A page has no surface: the loop draws nothing into it.
+		w.s.gone = true
+	case first:
 		native, width, height, scale, ok = takeNativeSurface(5 * time.Second)
-	} else {
+	default:
 		log.Printf("ohos: asking host for window %d", id)
 		if _, err := callHost("window.create", map[string]int{"id": id}); err != nil {
 			log.Printf("ohos: window.create failed: %v", err)
@@ -180,10 +193,12 @@ func (b *backend) NewWindow(opts *platform.WindowOptions, h platform.WindowHandl
 		native, width, height, scale, ok = takeSurfaceByID(uintptr(id), 10*time.Second)
 		log.Printf("ohos: window %d surface=%#x ok=%v", id, native, ok)
 	}
-	if !ok {
+	if !ok && !webWindow {
 		return nil, errors.New("ohos: no native surface from the host (is the XComponent mounted?)")
 	}
-	w.s.setNative(native, width, height, scale)
+	if !webWindow {
+		w.s.setNative(native, width, height, scale)
+	}
 
 	b.mu.Lock()
 	b.windows = append(b.windows, w)
@@ -196,6 +211,16 @@ func (b *backend) NewWindow(opts *platform.WindowOptions, h platform.WindowHandl
 	b.mu.Unlock()
 	b.Wake()
 
+	if webWindow {
+		// The page's URL comes as LoadURL or LoadHTML, once the window is
+		// made: the commands wait for the host's Web component to be there.
+		w.web.waitForReady(10 * time.Second)
+		if opts.BackgroundColor != nil {
+			w.SetBackgroundColor(*opts.BackgroundColor)
+		}
+		b.Wake()
+		return w, nil
+	}
 	w.h.Resized()
 	w.s.frameWanted = true
 	w.s.SetTextInput(platform.TextInputState{Active: false})

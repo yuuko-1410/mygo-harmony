@@ -3,6 +3,7 @@
 package ohos
 
 import (
+	"sync"
 	"github.com/egoist/mygo/internal/platform"
 )
 
@@ -21,6 +22,13 @@ type window struct {
 	frameLogged bool
 	resizable   bool
 	closed      bool
+
+	// web is the page the window shows instead of a surface: a window of a
+	// web UI has neither an XComponent nor frames of its own.
+	web *web
+	// asyncCB waits for what CallAsyncFunction ran to return.
+	asyncMu sync.Mutex
+	asyncCB func(result string, err error)
 }
 
 func (w *window) Handle() uintptr           { return w.s.native }

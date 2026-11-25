@@ -33,6 +33,14 @@ void mygo_quit();
 void mygo_text_input(char *json);
 void mygo_host_reply(char *json);
 void mygo_window_closed(int id);
+void mygo_web_ready(int id);
+void mygo_web_nav(int id, int kind, char *text, int code);
+void mygo_web_history(int id, int canBack, int canFwd);
+void mygo_web_message(int id, char *json);
+void mygo_web_async_result(int id, char *result);
+char *mygo_web_scheme(int id, char *url, char *method, char *header, char *body);
+void mygo_free(char *p);
+void mygo_web_close_request(int id);
 }
 
 static double g_density = 1.0;
@@ -314,6 +322,100 @@ static napi_value Scroll(napi_env env, napi_callback_info info) {
     return nullptr;
 }
 
+static napi_value WebReady(napi_env env, napi_callback_info info) {
+    size_t argc = 1;
+    napi_value argv[1];
+    napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+    int32_t id = 0;
+    if (argc > 0) { napi_get_value_int32(env, argv[0], &id); }
+    mygo_web_ready(id);
+    return nullptr;
+}
+
+static napi_value WebNav(napi_env env, napi_callback_info info) {
+    size_t argc = 4;
+    napi_value argv[4];
+    napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+    int32_t id = 0, kind = 0, code = 0;
+    char text[2048] = {0};
+    size_t len = 0;
+    if (argc > 0) { napi_get_value_int32(env, argv[0], &id); }
+    if (argc > 1) { napi_get_value_int32(env, argv[1], &kind); }
+    if (argc > 2) { napi_get_value_string_utf8(env, argv[2], text, sizeof(text) - 1, &len); }
+    if (argc > 3) { napi_get_value_int32(env, argv[3], &code); }
+    mygo_web_nav(id, kind, text, code);
+    return nullptr;
+}
+
+static napi_value WebHistory(napi_env env, napi_callback_info info) {
+    size_t argc = 3;
+    napi_value argv[3];
+    napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+    int32_t id = 0, back = 0, fwd = 0;
+    if (argc > 0) { napi_get_value_int32(env, argv[0], &id); }
+    if (argc > 1) { napi_get_value_int32(env, argv[1], &back); }
+    if (argc > 2) { napi_get_value_int32(env, argv[2], &fwd); }
+    mygo_web_history(id, back, fwd);
+    return nullptr;
+}
+
+static napi_value WebMessage(napi_env env, napi_callback_info info) {
+    size_t argc = 2;
+    napi_value argv[2];
+    napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+    int32_t id = 0;
+    char buf[65536] = {0};
+    size_t len = 0;
+    if (argc > 0) { napi_get_value_int32(env, argv[0], &id); }
+    if (argc > 1) { napi_get_value_string_utf8(env, argv[1], buf, sizeof(buf) - 1, &len); }
+    mygo_web_message(id, buf);
+    return nullptr;
+}
+
+static napi_value WebAsyncResult(napi_env env, napi_callback_info info) {
+    size_t argc = 2;
+    napi_value argv[2];
+    napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+    int32_t id = 0;
+    char buf[65536] = {0};
+    size_t len = 0;
+    if (argc > 0) { napi_get_value_int32(env, argv[0], &id); }
+    if (argc > 1) { napi_get_value_string_utf8(env, argv[1], buf, sizeof(buf) - 1, &len); }
+    mygo_web_async_result(id, buf);
+    return nullptr;
+}
+
+// WebScheme serves a request the host's Web component intercepted, which
+// answers at once: it returns what Go served, as JSON.
+static napi_value WebScheme(napi_env env, napi_callback_info info) {
+    size_t argc = 5;
+    napi_value argv[5];
+    napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+    int32_t id = 0;
+    char url[8192] = {0}, method[32] = {0}, header[16384] = {0}, body[4096] = {0};
+    size_t len = 0;
+    if (argc > 0) { napi_get_value_int32(env, argv[0], &id); }
+    if (argc > 1) { napi_get_value_string_utf8(env, argv[1], url, sizeof(url) - 1, &len); }
+    if (argc > 2) { napi_get_value_string_utf8(env, argv[2], method, sizeof(method) - 1, &len); }
+    if (argc > 3) { napi_get_value_string_utf8(env, argv[3], header, sizeof(header) - 1, &len); }
+    if (argc > 4) { napi_get_value_string_utf8(env, argv[4], body, sizeof(body) - 1, &len); }
+    char *json = mygo_web_scheme(id, url, method, header, body);
+    napi_value out;
+    napi_create_string_utf8(env, json == nullptr ? "" : json, NAPI_AUTO_LENGTH, &out);
+    mygo_free(json);
+    return out;
+}
+
+static napi_value WebCloseRequest(napi_env env, napi_callback_info info) {
+    size_t argc = 1;
+    napi_value argv[1];
+    napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+    int32_t id = 0;
+    if (argc > 0) { napi_get_value_int32(env, argv[0], &id); }
+    mygo_web_close_request(id);
+    return nullptr;
+}
+
 static napi_value WindowClosed(napi_env env, napi_callback_info info) {
     size_t argc = 1;
     napi_value argv[1];
@@ -362,6 +464,13 @@ static napi_value Init(napi_env env, napi_value exports) {
         {"hostReply", nullptr, HostReply, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"windowClosed", nullptr, WindowClosed, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"scroll", nullptr, Scroll, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"webReady", nullptr, WebReady, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"webNav", nullptr, WebNav, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"webHistory", nullptr, WebHistory, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"webMessage", nullptr, WebMessage, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"webAsyncResult", nullptr, WebAsyncResult, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"webScheme", nullptr, WebScheme, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"webCloseRequest", nullptr, WebCloseRequest, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"resizeId", nullptr, ResizeId, nullptr, nullptr, nullptr, napi_default, nullptr},
     };
     napi_define_properties(env, exports, sizeof(desc) / sizeof(desc[0]), desc);

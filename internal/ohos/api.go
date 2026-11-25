@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"sync"
 	"time"
+	"unsafe"
 
 	"github.com/egoist/mygo/internal/platform"
 )
@@ -686,5 +687,100 @@ func takeSurfaceByID(id uintptr, timeout time.Duration) (native uintptr, width, 
 			return 0, 0, 0, 0, false
 		}
 		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+//export mygo_web_ready
+func mygo_web_ready(id C.int) {
+	b := current()
+	if b == nil {
+		return
+	}
+	b.push(func() {
+		if w := b.webWindowOf(int(id)); w != nil && w.web != nil {
+			w.web.markReady()
+		}
+	})
+}
+
+//export mygo_web_nav
+func mygo_web_nav(id, kind C.int, text *C.char, code C.int) {
+	b := current()
+	if b == nil {
+		return
+	}
+	s := ""
+	if text != nil {
+		s = C.GoString(text)
+	}
+	b.push(func() { b.webNav(int(id), int(kind), s, int(code)) })
+}
+
+//export mygo_web_history
+func mygo_web_history(id C.int, canBack, canFwd C.int) {
+	b := current()
+	if b == nil {
+		return
+	}
+	b.push(func() { b.webHistory(int(id), canBack != 0, canFwd != 0) })
+}
+
+//export mygo_web_message
+func mygo_web_message(id C.int, msg *C.char) {
+	b := current()
+	if b == nil || msg == nil {
+		return
+	}
+	s := C.GoString(msg)
+	b.push(func() { b.webMessage(int(id), s) })
+}
+
+//export mygo_web_async_result
+func mygo_web_async_result(id C.int, result *C.char) {
+	b := current()
+	if b == nil || result == nil {
+		return
+	}
+	s := C.GoString(result)
+	b.push(func() { b.webAsyncResult(int(id), s) })
+}
+
+// mygo_web_scheme serves a request the host intercepted and returns what
+// protocol.go answered, as JSON: the host's interceptor answers at once, so
+// this waits for the main thread, and the host frees the string.
+//
+//export mygo_web_scheme
+func mygo_web_scheme(id C.int, url, method, header, body *C.char) *C.char {
+	b := current()
+	if b == nil {
+		return C.CString("")
+	}
+	arg := func(p *C.char) string {
+		if p == nil {
+			return ""
+		}
+		return C.GoString(p)
+	}
+	u, m, h, bd := arg(url), arg(method), arg(header), arg(body)
+	out := b.webScheme(int(id), 0, u, m, h, bd)
+	return C.CString(out)
+}
+
+//export mygo_web_close_request
+func mygo_web_close_request(id C.int) {
+	b := current()
+	if b == nil {
+		return
+	}
+	b.push(func() { b.webCloseRequest(int(id)) })
+}
+
+// mygo_free frees a string this side made for the host, as a served request
+// of a scheme the host intercepted.
+//
+//export mygo_free
+func mygo_free(p *C.char) {
+	if p != nil {
+		C.free(unsafe.Pointer(p))
 	}
 }

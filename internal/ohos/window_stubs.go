@@ -8,16 +8,8 @@ import (
 	"github.com/egoist/mygo/internal/platform"
 )
 
-func (w *window) CallAsyncFunction(body string, cb func(result string, err error)) {
-}
 
-func (w *window) CanGoBack() bool {
-	return false
-}
 
-func (w *window) CanGoForward() bool {
-	return false
-}
 
 func (w *window) CapturePage(cb func(png []byte, err error)) {
 }
@@ -33,8 +25,6 @@ func (w *window) DroppedFiles() []string {
 	return nil
 }
 
-func (w *window) Eval(js string) {
-}
 
 func (w *window) FlashFrame(flash bool) {
 }
@@ -43,11 +33,7 @@ func (w *window) GPUProcessID() int {
 	return 0
 }
 
-func (w *window) GoBack() {
-}
 
-func (w *window) GoForward() {
-}
 
 func (w *window) HasShadow() bool {
 	return false
@@ -77,9 +63,6 @@ func (w *window) IsDevToolsOpened() bool {
 	return false
 }
 
-func (w *window) IsLoading() bool {
-	return false
-}
 
 func (w *window) IsMaximizable() bool {
 	return false
@@ -93,14 +76,8 @@ func (w *window) IsMovable() bool {
 	return false
 }
 
-func (w *window) LoadFile(path, readAccessDir string) {
-}
 
-func (w *window) LoadHTML(html, baseURL string) {
-}
 
-func (w *window) LoadURL(url string) {
-}
 
 func (w *window) OpenDevTools() {
 }
@@ -121,8 +98,6 @@ func (w *window) ProcessID() int {
 	return 0
 }
 
-func (w *window) Reload(ignoreCache bool) {
-}
 
 func (w *window) Restore() {
 }
@@ -156,8 +131,6 @@ func (w *window) SetClosable(v bool) {
 func (w *window) SetContentProtection(v bool) {
 }
 
-func (w *window) SetContentRules(lists []any) {
-}
 
 func (w *window) SetDocumentEdited(edited bool) {
 }
@@ -199,11 +172,7 @@ func (w *window) SetRepresentedFile(path string) {
 func (w *window) SetSkipTaskbar(v bool) {
 }
 
-func (w *window) SetUserAgent(ua string) {
-}
 
-func (w *window) SetUserScripts(scripts []platform.UserScript) {
-}
 
 func (w *window) SetVibrancy(material string) {
 }
@@ -217,14 +186,10 @@ func (w *window) SetVisibleOnAllWorkspaces(v bool) {
 func (w *window) SetWindowButtonsTheme(source string) {
 }
 
-func (w *window) SetZoom(factor float64) {
-}
 
 func (w *window) StartDrag() {
 }
 
-func (w *window) StopLoading() {
-}
 
 func (w *window) TitleBar() platform.TitleBar {
 	return platform.TitleBar{}
@@ -236,21 +201,9 @@ func (w *window) TitleBarDoubleClicked() {
 func (w *window) TogglePictureInPicture() {
 }
 
-func (w *window) URL() string {
-	return ""
-}
 
 func (w *window) Unmaximize() {
 }
 
-func (w *window) UserAgent() string {
-	return ""
-}
 
-func (w *window) WebViewHandle() uintptr {
-	return 0
-}
 
-func (w *window) Zoom() float64 {
-	return 0
-}
