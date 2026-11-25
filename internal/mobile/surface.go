@@ -109,9 +109,10 @@ func (s *surface) back() bool {
 	return false
 }
 
-// Native is the CAMetalLayer of iOS, the ANativeWindow of Android.
+// Native is the CAMetalLayer of iOS, the ANativeWindow of Android, the
+// OHNativeWindow of OpenHarmony.
 func (s *surface) Native() platform.SurfaceNative {
-	if mapsSchemes { // Android
+	if nativeWindow {
 		return platform.SurfaceNative{Window: s.handle}
 	}
 	return platform.SurfaceNative{Layer: s.handle}

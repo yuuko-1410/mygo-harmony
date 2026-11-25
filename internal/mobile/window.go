@@ -14,6 +14,11 @@ import (
 // (package schemehost), which pages and the core never see.
 var mapsSchemes = runtime.GOOS == "android"
 
+// nativeWindow tells that a surface's handle is the system's window
+// (Android's ANativeWindow, OpenHarmony's OHNativeWindow) rather than a
+// layer to make one of, as iOS's CAMetalLayer is.
+var nativeWindow = runtime.GOOS == "android" || openharmony
+
 // webURL is the URL the web view loads for url.
 func (w *window) webURL(url string) string {
 	if !mapsSchemes || url == "" {

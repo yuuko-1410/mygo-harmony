@@ -18,8 +18,6 @@ func newGPURenderer(n platform.SurfaceNative) (gpuRenderer, error) {
 	}
 	w, err := gl.NewWindow(n.Window)
 	if err != nil {
-	}
-	if err != nil {
 		return nil, err
 	}
 	r, err := gl.New()

@@ -33,6 +33,16 @@ then `hvigorw assembleHap` (or `devecocli build`) in the app's project, whose
 `entry/src/main/cpp` is this directory and whose `module.json5` lists
 `pages/Index` first.
 
+## Why the window was black
+
+`surface.Native()` asked `mapsSchemes` — `runtime.GOOS == "android"` — whether
+the handle is the system's window or a layer to make one of, because on
+Android both are true. OpenHarmony is not a GOOS here but a tag: the toolchain
+says `linux`, so `runtime.GOOS` is `linux`, the answer was "layer", and `ui`
+made no renderer at all. `nativeWindow` (in `window.go`) is the question that
+should have been asked, and `openharmony` (in `ohos.go`) is how a build knows
+it is this platform when the GOOS cannot say so.
+
 ## The protocol's two rules, learned the hard way
 
 - **Do not send `Ready`.** The backend posts it itself (`postReady`), before
@@ -60,7 +70,8 @@ then `hvigorw assembleHap` (or `devecocli build`) in the app's project, whose
 Verified on the device (MateBook Pro S, API 26): the app's c-archive builds
 (32.4 MB), `libentry.so` links, and the HAP builds, installs and launches.
 
-On the device the app now starts, and Go's own calls arrive: `AppInfo`,
+On the device the window shows what the app draws — a block and a line of
+text, in the first frame — and Go's own calls arrive: `AppInfo`,
 `Theme`, `CreateWindow` (14 KB of schemes and scripts), `ShowWindow`,
 `SetBackground`, and `FirstFrame` — the content drew, and the host showed
 what it drew. Text comes from `internal/text`'s OpenHarmony engine, which
