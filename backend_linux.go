@@ -1,4 +1,4 @@
-//go:build linux && !android && (amd64 || arm64) && !android && !openharmony
+//go:build linux && !android && (amd64 || arm64) && !android && !openharmony && !ohos
 
 package mygo
 

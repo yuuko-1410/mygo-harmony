@@ -1,4 +1,4 @@
-//go:build openharmony
+//go:build openharmony || (linux && ohos)
 
 // Package ohos is MyGo's OpenHarmony (HarmonyOS) backend: a HarmonyOS app's
 // native module makes an XComponent, hands its OHNativeWindow to Go through

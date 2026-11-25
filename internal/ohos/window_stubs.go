@@ -1,4 +1,4 @@
-//go:build openharmony
+//go:build openharmony || (linux && ohos)
 
 // Code generated from internal/platform/platform.go for Window -- do not edit by hand.
 

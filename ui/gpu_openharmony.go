@@ -1,4 +1,4 @@
-//go:build openharmony
+//go:build openharmony || (linux && ohos)
 
 package ui
 

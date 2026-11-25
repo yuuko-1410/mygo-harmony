@@ -1,4 +1,4 @@
-//go:build !(linux && !android && (amd64 || arm64)) || openharmony
+//go:build (!(linux && !android && (amd64 || arm64)) || openharmony) || ohos
 
 package mygo
 
