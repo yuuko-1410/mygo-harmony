@@ -12,9 +12,13 @@
 
 #include <unistd.h>
 
+#include <chrono>
+#include <condition_variable>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <mutex>
+#include <vector>
 
 #define LOG_DOMAIN 0xD002  // hilog takes 0x0 to 0xFFFFF: a bigger one logs nothing
 #define LOG_TAG "MYGO"
@@ -40,6 +44,8 @@ napi_ref g_dispatch = nullptr;   // (Uint8Array) => Uint8Array | null
 napi_ref g_surface = nullptr;    // (handle, width, height, scale) => void
 napi_ref g_touch = nullptr;      // (phase, x, y) => void
 napi_threadsafe_function g_post = nullptr;
+napi_threadsafe_function g_calls = nullptr;  // calls of Go's for the JS thread
+
 // The JS thread: the only one a call of Go's may reach the host on.
 pid_t g_jsThread = 0;
 OH_NativeXComponent *g_component = nullptr;
@@ -235,6 +241,75 @@ napi_value drain(napi_env, napi_callback_info) {
     return nullptr;
 }
 
+
+// bytes copies a JS Uint8Array or ArrayBuffer, which Go frees.
+bool bytes(napi_value value, uint8_t **out, size_t *n);
+
+// dispatchOnJS runs one call of Go's on the host. JS thread only: the env is
+// the JS thread's, and a VM that is entered from another thread aborts
+// ("ecma_vm cannot run in multi-thread").
+void dispatchOnJS(const uint8_t *msg, size_t len, std::vector<uint8_t> &out) {
+    if (g_env == nullptr || g_dispatch == nullptr) {
+        return;
+    }
+    napi_handle_scope scope;
+    if (napi_open_handle_scope(g_env, &scope) != napi_ok) {
+        return;
+    }
+    void *data = nullptr;
+    napi_value ab = nullptr;
+    napi_value buf = nullptr;
+    if (napi_create_arraybuffer(g_env, len > 0 ? len : 1, &data, &ab) == napi_ok && data != nullptr) {
+        if (len > 0) {
+            std::memcpy(data, msg, len);
+        }
+        // The host reads Uint8Array, not the ArrayBuffer it lies on.
+        napi_create_typedarray(g_env, napi_uint8_array, len, ab, 0, &buf);
+        napi_value dispatch = nullptr;
+        napi_value global = nullptr;
+        napi_value result = nullptr;
+        napi_value argv[1] = {buf};
+        napi_get_reference_value(g_env, g_dispatch, &dispatch);
+        napi_get_global(g_env, &global);
+        napi_status st = napi_call_function(g_env, global, dispatch, 1, argv, &result);
+        if (st == napi_ok) {
+            uint8_t *b = nullptr;
+            size_t n = 0;
+            if (bytes(result, &b, &n) && b != nullptr) {
+                out.assign(b, b + n);
+                free(b);
+            }
+        } else {
+            LOGI("MYGO dispatch failed: %{public}d", static_cast<int>(st));
+        }
+    }
+    napi_close_handle_scope(g_env, scope);
+}
+
+// A call of Go's from a thread that is not the JS thread's, which waits
+// while the JS thread runs it: the sound writes on its own thread, and a
+// Go thread's call into the VM is not the VM's to take.
+struct crossCall {
+    std::mutex mu;
+    std::condition_variable cv;
+    bool done = false;
+    std::vector<uint8_t> msg;
+    std::vector<uint8_t> out;
+};
+
+// callOnJS runs a queued call of Go's, on the JS thread.
+void callOnJS(napi_env, napi_value, void *, void *data) {
+    auto *c = static_cast<crossCall *>(data);
+    std::vector<uint8_t> out;
+    dispatchOnJS(c->msg.data(), c->msg.size(), out);
+    {
+        std::lock_guard<std::mutex> lock(c->mu);
+        c->out.swap(out);
+        c->done = true;
+    }
+    c->cv.notify_all();
+}
+
 // start begins Go. dispatch runs one call on the JS thread, onSurface
 // reports the window, and onDrain asks ArkTS to drain Go's calls.
 napi_value start(napi_env env, napi_callback_info info) {
@@ -260,6 +335,13 @@ napi_value start(napi_env env, napi_callback_info info) {
     if (napi_create_threadsafe_function(env, argv[2], nullptr, name, 0, 1, nullptr, nullptr, nullptr, postJS,
                                         &g_post) != napi_ok) {
         LOGE("MYGO no threadsafe function");
+    }
+    // The calls of Go's a thread of its own makes, carried to this one.
+    napi_value callsName = nullptr;
+    napi_create_string_utf8(env, "mygoCalls", NAPI_AUTO_LENGTH, &callsName);
+    if (napi_create_threadsafe_function(env, nullptr, nullptr, callsName, 0, 1, nullptr, nullptr, nullptr, callOnJS,
+                                        &g_calls) != napi_ok) {
+        LOGE("MYGO no threadsafe function for calls");
     }
     if (g_handle != 0) {
         callSurface(g_handle, g_width, g_height, 1);
@@ -291,49 +373,54 @@ napi_value Init(napi_env env, napi_value exports) {
 
 }  // namespace
 
+
 // What Go calls: one call of the host, on the JS thread.
 extern "C" void mygo_ohos_call(uint8_t *msg, size_t len, uint8_t **reply, size_t *replyLen) {
     *reply = nullptr;
     *replyLen = 0;
-    {
-        static int foreign = 0;
-        pid_t tid = static_cast<pid_t>(gettid());
-        if (tid != g_jsThread && foreign < 40) {
-            foreign++;
-            LOGI("MYGO call %{public}d of %{public}d bytes from thread %{public}d (js %{public}d)", len > 0 ? msg[0] : -1,
-                 static_cast<int>(len), static_cast<int>(tid), static_cast<int>(g_jsThread));
+    const pid_t tid = static_cast<pid_t>(gettid());
+    if (g_jsThread != 0 && tid != g_jsThread) {
+        // Queued for the JS thread, which runs it as soon as it can: the
+        // call waits, and a call that waits too long is dropped rather than
+        // wedging the thread that made it (the sound's is a stream of them).
+        if (g_calls == nullptr) {
+            return;
         }
-    }
-    if (g_env == nullptr || g_dispatch == nullptr) {
+        crossCall c;
+        c.msg.assign(msg, msg + len);
+        if (napi_call_threadsafe_function(g_calls, &c, napi_tsfn_blocking) != napi_ok) {
+            return;
+        }
+        std::unique_lock<std::mutex> lock(c.mu);
+        if (!c.cv.wait_for(lock, std::chrono::seconds(2), [&c] { return c.done; })) {
+            LOGE("MYGO call %{public}d of %{public}d bytes waited 2s for the JS thread",
+                 len > 0 ? msg[0] : -1, static_cast<int>(len));
+            return;
+        }
+        if (c.out.empty()) {
+            return;
+        }
+        auto *p = static_cast<uint8_t *>(malloc(c.out.size()));
+        if (p == nullptr) {
+            return;
+        }
+        std::memcpy(p, c.out.data(), c.out.size());
+        *reply = p;
+        *replyLen = c.out.size();
         return;
     }
-    napi_handle_scope scope;
-    if (napi_open_handle_scope(g_env, &scope) != napi_ok) {
+    std::vector<uint8_t> out;
+    dispatchOnJS(msg, len, out);
+    if (out.empty()) {
         return;
     }
-    void *data = nullptr;
-    napi_value ab = nullptr;
-    napi_value buf = nullptr;
-    if (napi_create_arraybuffer(g_env, len > 0 ? len : 1, &data, &ab) == napi_ok && data != nullptr) {
-        if (len > 0) {
-            std::memcpy(data, msg, len);
-        }
-        // The host reads Uint8Array, not the ArrayBuffer it lies on.
-        napi_create_typedarray(g_env, napi_uint8_array, len, ab, 0, &buf);
-        napi_value dispatch = nullptr;
-        napi_value global = nullptr;
-        napi_value result = nullptr;
-        napi_value argv[1] = {buf};
-        napi_get_reference_value(g_env, g_dispatch, &dispatch);
-        napi_get_global(g_env, &global);
-        napi_status st = napi_call_function(g_env, global, dispatch, 1, argv, &result);
-        if (st == napi_ok) {
-            bytes(result, reply, replyLen);
-        } else {
-            LOGI("MYGO dispatch failed: %{public}d", static_cast<int>(st));
-        }
+    auto *p = static_cast<uint8_t *>(malloc(out.size()));
+    if (p == nullptr) {
+        return;
     }
-    napi_close_handle_scope(g_env, scope);
+    std::memcpy(p, out.data(), out.size());
+    *reply = p;
+    *replyLen = out.size();
 }
 
 // What Go calls: a line the app wrote to its standard output or error.
