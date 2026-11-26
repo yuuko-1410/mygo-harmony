@@ -1560,6 +1560,20 @@ export class SetFrameRateCall {
   }
 }
 
+export class SetTabTitleCall {
+  id: number = 0
+  index: number = 0
+  title: string = ''
+  constructor() {}
+  static decode(r: WireReader): SetTabTitleCall {
+    const c = new SetTabTitleCall()
+    c.id = r.int()
+    c.index = r.int()
+    c.title = r.string()
+    return c
+  }
+}
+
 /** The calls Go makes of the host, on the UI thread. */
 export interface HostCalls {
   /** the app's bundle and the system's settings, asked once at start */
@@ -1699,6 +1713,8 @@ export interface HostCalls {
   registerFont(c: RegisterFontCall): RegisterFontReply
   /** how many Frames a second come from now on while they follow each other, a whole fraction of the display's rate, or 0 for the display's own (platform.FrameRateSurface) */
   setFrameRate(c: SetFrameRateCall): void
+  /** a tab's title, which the bar shows */
+  setTabTitle(c: SetTabTitleCall): void
 }
 
 /** Runs a call on h and encodes its reply, null for a call not waited for. */
@@ -1969,6 +1985,9 @@ export function dispatchCall(h: HostCalls, buf: Uint8Array): Uint8Array | null {
       return w.done()
     case 88:
       h.setFrameRate(SetFrameRateCall.decode(r))
+      return null
+    case 89:
+      h.setTabTitle(SetTabTitleCall.decode(r))
       return null
     default:
       return null
