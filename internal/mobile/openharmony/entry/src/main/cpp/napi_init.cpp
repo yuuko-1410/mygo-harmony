@@ -17,6 +17,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <deque>
 #include <map>
 #include <mutex>
 #include <string>
@@ -48,6 +49,11 @@ napi_ref g_touch = nullptr;      // (phase, x, y) => void
 napi_threadsafe_function g_post = nullptr;
 napi_threadsafe_function g_calls = nullptr;  // calls of Go's for the JS thread
 napi_threadsafe_function g_relay = nullptr;  // events of other windows, for it
+// The events of the windows of other instances, which wait for the one that
+// runs Go to take them: no instance waits for another, or two that wait for
+// each other hold still.
+std::mutex g_pendingMu;
+std::deque<std::vector<uint8_t>> g_pendingEvents;
 
 // dispatchOnJS runs one call of Go's on the host of the instance that runs
 // Go: defined below, where the module's methods are.
@@ -305,6 +311,25 @@ void relayOnJS(napi_env, napi_value, void *, void *data) {
     c->cv.notify_all();
 }
 
+// pump runs the events the other windows queued, on the instance that runs
+// Go. JS thread of that instance only.
+napi_value pump(napi_env env, napi_callback_info) {
+    for (;;) {
+        std::vector<uint8_t> msg;
+        {
+            std::lock_guard<std::mutex> lock(g_pendingMu);
+            if (g_pendingEvents.empty() || g_env == nullptr) {
+                return nullptr;
+            }
+            msg.swap(g_pendingEvents.front());
+            g_pendingEvents.pop_front();
+        }
+        std::vector<uint8_t> out;
+        dispatchOnJS(msg.data(), msg.size(), out);
+    }
+    return nullptr;
+}
+
 napi_value event(napi_env env, napi_callback_info info) {
     size_t argc = 1;
     napi_value argv[1] = {nullptr};
@@ -316,29 +341,16 @@ napi_value event(napi_env env, napi_callback_info info) {
     if (!bytes(argv[0], &msg, &n)) {
         return nullptr;
     }
-    if (g_jsThread != 0 && static_cast<pid_t>(gettid()) != g_jsThread && g_relay != nullptr) {
-        // A window of its own is an instance of its own: its events go to
-        // the instance that runs Go, which answers them.
-        crossCall c;
-        c.msg.assign(msg, msg + n);
+    if (g_jsThread != 0 && static_cast<pid_t>(gettid()) != g_jsThread) {
+        // A window of its own is an instance of its own, and its events go
+        // to the instance that runs Go — queued, not waited for: it is the
+        // one that runs Go that pumps them (pump), at its next frame.
+        {
+            std::lock_guard<std::mutex> lock(g_pendingMu);
+            g_pendingEvents.emplace_back(msg, msg + n);
+        }
         std::free(msg);
-        if (napi_call_threadsafe_function(g_relay, &c, napi_tsfn_blocking) != napi_ok) {
-            return nullptr;
-        }
-        std::unique_lock<std::mutex> lock(c.mu);
-        if (!c.cv.wait_for(lock, std::chrono::seconds(2), [&c] { return c.done; })) {
-            LOGE("MYGO event waited 2s for the instance that runs Go");
-            return nullptr;
-        }
-        if (c.out.empty()) {
-            return nullptr;
-        }
-        napi_value out = nullptr;
-        void *p = nullptr;
-        if (napi_create_arraybuffer(env, c.out.size(), &p, &out) == napi_ok) {
-            std::memcpy(p, c.out.data(), c.out.size());
-        }
-        return out;
+        return nullptr;
     }
     uint8_t *reply = nullptr;
     size_t replyLen = 0;
@@ -566,6 +578,7 @@ napi_value Init(napi_env env, napi_value exports) {
         {"bind", nullptr, bind, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"start", nullptr, start, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"event", nullptr, event, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"pump", nullptr, pump, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"drain", nullptr, drain, nullptr, nullptr, nullptr, napi_default, nullptr},
     };
     napi_define_properties(env, exports, sizeof(desc) / sizeof(desc[0]), desc);

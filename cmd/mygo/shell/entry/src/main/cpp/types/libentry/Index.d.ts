@@ -8,3 +8,4 @@ export const start: (dispatch: (buf: Uint8Array) => Uint8Array | null,
   onTouch: (id: number, phase: string, x: number, y: number) => void) => void;
 export const event: (buf: Uint8Array) => ArrayBuffer | undefined;
 export const drain: () => void;
+export const pump: () => void;

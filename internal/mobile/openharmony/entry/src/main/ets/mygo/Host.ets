@@ -106,6 +106,9 @@ export class Host extends HostStubs {
   send: (buf: Uint8Array) => void = (buf: Uint8Array) => {};
   // bindWindow has the component the page draws with draw for window id.
   bindWindow: (id: number) => void = (id: number): void => {};
+  // pump takes the events the other windows queued, which wait for the
+  // instance that runs Go.
+  pump: () => void = (): void => {};
   // ask sends an event Go answers, and reads its reply.
   ask: (buf: Uint8Array) => Uint8Array | null = (buf: Uint8Array): Uint8Array | null => null;
   // mainWindow is the window Go made first: the app's own, as Android's is
@@ -1642,6 +1645,9 @@ export class Host extends HostStubs {
 
   // tick runs at the display's refreshes: a frame Go asked for, or none.
   tick(): void {
+    // The windows of other instances queue their events: they run here,
+    // where Go runs, at this frame.
+    this.pump();
     this.readClipboard();
     if (this.wanted && this.windowId !== 0) {
       this.wanted = false;

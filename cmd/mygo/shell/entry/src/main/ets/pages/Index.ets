@@ -40,6 +40,9 @@ struct Index {
     host.send = (buf: Uint8Array): void => {
       native.event(buf);
     };
+    host.pump = (): void => {
+      native.pump();
+    };
     host.bindWindow = (id: number): void => {
       native.bind(id);
     };
