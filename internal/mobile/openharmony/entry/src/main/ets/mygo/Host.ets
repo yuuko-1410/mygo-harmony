@@ -10,6 +10,8 @@ import pasteboard from '@ohos.pasteboard';
 import connection from '@ohos.net.connection';
 import preferences from '@ohos.data.preferences';
 import util from '@ohos.util';
+import picker from '@ohos.file.picker';
+import fs from '@ohos.file.fs';
 import common from '@ohos.app.ability.common';
 import window from '@ohos.window';
 import { PromptAction } from '@ohos.arkui.UIContext';
@@ -17,6 +19,7 @@ import { BusinessError } from '@ohos.base';
 import { AppInfoReply, BatteryReply, CreateWindowCall, CreateWindowReply, Event, FirstFrameCall,
   LoadHTMLCall, LoadURLCall, MessageBoxCall, RequestFrameCall, ScreenReply, SetBackgroundCall, SetFrameRateCall, SetTextInputCall,
   ClipboardTextReply, EvalCall, GoBackCall, HapticCall, KeepAwakeCall, NetworkStatusReply,
+  OpenFilesCall, SaveFileCall,
   SecretDeleteCall, SecretDeleteReply, SecretGetCall, SecretGetReply, SecretSetCall, SecretSetReply,
   SetClipboardTextCall, SetSystemBarsCall, GoForwardCall, ReloadCall, SetTitleCall, SetZoomCall, ShowWindowCall,
   StopLoadingCall, ThemeReply, dispatchCall } from './Wire';
@@ -482,6 +485,96 @@ export class Host extends HostStubs {
       r.error = `${e}`;
     }
     return r;
+  }
+
+  // openFiles shows the system's picker and copies what was picked where
+  // the app may read it: FilesResult answers with the copies.
+  openFiles(c: OpenFilesCall): void {
+    const ctx = this.ctx;
+    if (ctx === undefined) {
+      this.send(Event.filesResult(c.req, [], 'no context'));
+      return;
+    }
+    const p = new picker.DocumentViewPicker(ctx);
+    const options: picker.DocumentSelectOptions = {
+      maxSelectNumber: c.multiple ? 20 : 1,
+    };
+    if (c.directories) {
+      options.selectMode = picker.DocumentSelectMode.FOLDER;
+    }
+    if (c.extensions.length > 0) {
+      const filters: string[] = [];
+      for (const ext of c.extensions) {
+        filters.push(ext.startsWith('.') ? ext : `.${ext}`);
+      }
+      options.fileSuffixFilters = filters;
+    }
+    p.select(options).then((uris: string[]) => {
+      const paths: string[] = [];
+      for (const uri of uris) {
+        const path = c.directories ? uri : this.copyInto(uri);
+        if (path !== '') {
+          paths.push(path);
+        }
+      }
+      this.send(Event.filesResult(c.req, paths, ''));
+    }).catch((e: BusinessError) => {
+      // Dismissed is not an error, as a phone's picker says.
+      const message = e.code === 13900042 ? '' : `${e.message}`;
+      this.send(Event.filesResult(c.req, [], message));
+    });
+  }
+
+  // saveFile shows the picker of where to keep a copy of a file.
+  saveFile(c: SaveFileCall): void {
+    const ctx = this.ctx;
+    if (ctx === undefined) {
+      this.send(Event.filesResult(c.req, [], 'no context'));
+      return;
+    }
+    const p = new picker.DocumentViewPicker(ctx);
+    const name = c.name.length > 0 ? c.name : 'mygo.txt';
+    const options: picker.DocumentSaveOptions = { newFileNames: [name] };
+    p.save(options).then((uris: string[]) => {
+      if (uris.length === 0) {
+        this.send(Event.filesResult(c.req, [], ''));
+        return;
+      }
+      try {
+        const dst = fs.openSync(uris[0], fs.OpenMode.READ_WRITE);
+        fs.copyFileSync(c.path, dst.fd);
+        fs.closeSync(dst);
+      } catch (e) {
+        this.send(Event.filesResult(c.req, [], `${e}`));
+        return;
+      }
+      this.send(Event.filesResult(c.req, [uris[0]], ''));
+    }).catch((e: BusinessError) => {
+      this.send(Event.filesResult(c.req, [], `${e.message}`));
+    });
+  }
+
+  // copyInto copies a picked document into the app's cache, where its own
+  // files are: the picker's uri is not one of those.
+  private copyInto(uri: string): string {
+    const ctx = this.ctx;
+    if (ctx === undefined) {
+      return '';
+    }
+    try {
+      const dir = `${ctx.cacheDir}/mygo-picked`;
+      fs.mkdirSync(dir, true);
+      const cut = uri.lastIndexOf('/');
+      const name = cut >= 0 ? uri.substring(cut + 1) : 'file';
+      const dest = `${dir}/${name}`;
+      const src = fs.openSync(uri, fs.OpenMode.READ_ONLY);
+      fs.copyFileSync(src.fd, dest);
+      fs.closeSync(src);
+      return dest;
+    } catch (e) {
+      console.error(`mygo: copy ${uri}: ${e}`);
+      return '';
+    }
   }
 
   // requestFrame notes that Go has something to draw: the display's next
