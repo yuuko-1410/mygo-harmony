@@ -12,6 +12,8 @@ import preferences from '@ohos.data.preferences';
 import util from '@ohos.util';
 import picker from '@ohos.file.picker';
 import fs from '@ohos.file.fs';
+import notificationManager from '@ohos.notificationManager';
+import wantAgent from '@ohos.app.ability.wantAgent';
 import common from '@ohos.app.ability.common';
 import window from '@ohos.window';
 import { PromptAction } from '@ohos.arkui.UIContext';
@@ -19,7 +21,7 @@ import { BusinessError } from '@ohos.base';
 import { AppInfoReply, BatteryReply, CreateWindowCall, CreateWindowReply, Event, FirstFrameCall,
   LoadHTMLCall, LoadURLCall, MessageBoxCall, RequestFrameCall, ScreenReply, SetBackgroundCall, SetFrameRateCall, SetTextInputCall,
   ClipboardTextReply, EvalCall, GoBackCall, HapticCall, KeepAwakeCall, NetworkStatusReply,
-  OpenFilesCall, SaveFileCall,
+  NotifyCall, OpenFilesCall, OpenURLReply, OpenURLCall, RemoveNotificationCall, SaveFileCall,
   SecretDeleteCall, SecretDeleteReply, SecretGetCall, SecretGetReply, SecretSetCall, SecretSetReply,
   SetClipboardTextCall, SetSystemBarsCall, GoForwardCall, ReloadCall, SetTitleCall, SetZoomCall, ShowWindowCall,
   StopLoadingCall, ThemeReply, dispatchCall } from './Wire';
@@ -575,6 +577,101 @@ export class Host extends HostStubs {
       console.error(`mygo: copy ${uri}: ${e}`);
       return '';
     }
+  }
+
+  // openURL opens a URL in the app the system has for it.
+  openURL(c: OpenURLCall): OpenURLReply {
+    const r = new OpenURLReply();
+    const ctx = this.ctx;
+    if (ctx === undefined) {
+      return r;
+    }
+    try {
+      (ctx as common.UIAbilityContext).startAbility({
+        action: 'ohos.want.action.viewData',
+        uri: c.url,
+      }).then(() => {
+        r.ok = true;
+      }).catch((e: BusinessError) => {
+        console.error(`mygo: open ${c.url}: ${e.message}`);
+      });
+      r.ok = true;
+    } catch (e) {
+      console.error(`mygo: open ${c.url}: ${e}`);
+    }
+    return r;
+  }
+
+  // notify puts a notification in the system's list, and answers once the
+  // system has it.
+  notify(c: NotifyCall): void {
+    const ctx = this.ctx;
+    if (ctx === undefined) {
+      return;
+    }
+    const req: notificationManager.NotificationRequest = {
+      id: this.notificationId(c.notificationID),
+      content: {
+        notificationContentType: notificationManager.ContentType.NOTIFICATION_CONTENT_BASIC_TEXT,
+        normal: {
+          title: c.title.length > 0 ? c.title : c.subtitle,
+          text: c.body,
+          additionalText: c.subtitle,
+        },
+      },
+      isUnremovable: false,
+      tapDismissed: true,
+    };
+    if (c.group.length > 0) {
+      req.groupName = c.group;
+    }
+    notificationManager.publish(req).then(() => {
+      this.send(Event.notifyDone(c.req, ''));
+    }).catch((e: BusinessError) => {
+      if (e.code === 1600004 && ctx !== undefined) {
+        // The app's notifications are off: the system asks the user, and
+        // this one goes once they agree.
+        notificationManager.requestEnableNotification(ctx as common.UIAbilityContext).then(() => {
+          notificationManager.publish(req).then(() => {
+            this.send(Event.notifyDone(c.req, ''));
+          }).catch((again: BusinessError) => {
+            this.send(Event.notifyDone(c.req, again.message));
+          });
+        }).catch((no: BusinessError) => {
+          this.send(Event.notifyDone(c.req, no.message));
+        });
+        return;
+      }
+      this.send(Event.notifyDone(c.req, e.message));
+    });
+  }
+
+  // removeNotification takes one away, by the id Go gave it.
+  removeNotification(c: RemoveNotificationCall): void {
+    notificationManager.cancel(this.notificationId(c.notificationID)).catch((e: BusinessError) => {
+      console.error(`mygo: notification ${c.notificationID}: ${e.message}`);
+    });
+  }
+
+  removeAllNotifications(): void {
+    notificationManager.cancelAll().catch((e: BusinessError) => {
+      console.error(`mygo: notifications: ${e.message}`);
+    });
+  }
+
+  // notificationId is the system's number for Go's string: a hash of it,
+  // kept so that a removal finds what its notification made.
+  private notificationIds: Map<string, number> = new Map();
+  private nextNotificationId: number = 1;
+
+  private notificationId(id: string): number {
+    const known = this.notificationIds.get(id);
+    if (known !== undefined) {
+      return known;
+    }
+    const n = this.nextNotificationId++;
+    this.notificationIds.set(id, n);
+    return n;
   }
 
   // requestFrame notes that Go has something to draw: the display's next

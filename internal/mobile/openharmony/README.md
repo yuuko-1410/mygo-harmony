@@ -92,6 +92,11 @@ takes the first typeface that really maps the rune (a check, not a hope).
   XComponent goes while a page shows: a surface is a layer of its own, over
   ArkUI's, and the page would be under it. A page needs
   `ohos.permission.INTERNET` in the app's `module.json5`;
+- notifications: `Notify` publishes to the system's list (asking the user to
+  allow them the first time, when the system says they are off), and
+  `RemoveNotification` and `RemoveAllNotifications` take them away. Whether
+  they show is the user's and the system's call, not the host's;
+- `OpenURL` hands a URL to the app the system has for it;
 - the pickers: `OpenFiles` opens the system's document picker (its filters
   become suffix filters), copies what was picked into the app's cache — the
   picker's uri is not a path the app may read — and answers `FilesResult`;
