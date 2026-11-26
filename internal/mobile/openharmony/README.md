@@ -89,7 +89,14 @@ takes the first typeface that really maps the rune (a check, not a hope).
   the host shows it in a window of its own (`windowStage.createSubWindow`),
   moved and sized there, with the child's page loading through
   `pages/Embedded` — a surface is a layer above ArkUI's, so a web view
-  cannot sit on it in the same window. `CloseWindow` destroys that window,
+  cannot sit on it in the same window. What a child window is on this
+  platform, and what it is not: `setWindowDecorVisible`,
+  `setWindowTitleMoveEnabled`, `setWindowFocusable` and `setWindowLimits`
+  compile and are set, but a child window still shows no bar of its own, is
+  not in the task switcher, and is not dragged by a bar — a child window is
+  not a window of the app's, and hosting an in-app page in one is a
+  workaround for the surface's layer, with those consequences. `CloseWindow`
+  destroys that window,
   `HideWindow` minimizes it and `Focus` and `ShowWindow` bring it back, which
   the device's log shows as `closed 2`. The host ignores the covers, the
   places the content painted over a page, so a finger over one goes to the

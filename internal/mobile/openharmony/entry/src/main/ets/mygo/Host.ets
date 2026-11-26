@@ -71,6 +71,9 @@ export class Host extends HostStubs {
   private subs: Map<number, window.Window> = new Map();
   private pendingPlaces: Map<number, number[]> = new Map();
   private creating: Set<number> = new Set();
+  // Where Go last asked a child window to be: a place asked again is not
+  // applied, so a window moved by hand stays where it was put.
+  private placedAt: Map<number, number[]> = new Map();
   // The ids Go last said the surface shows.
   placed: number[] = [];
   // The page's window, for what the system does to it: bars, the screen
@@ -133,6 +136,7 @@ export class Host extends HostStubs {
       return;
     }
     this.subs.delete(c.id);
+    this.placedAt.delete(c.id);
     this.webChildren.delete(c.id);
     this.webSources.delete(c.id);
     this.placed = this.placed.filter((id: number): boolean => id !== c.id);
@@ -157,6 +161,13 @@ export class Host extends HostStubs {
 
   // setTitle is the window's title, which the system's title bar shows.
   setTitle(c: SetTitleCall): void {
+    const sub = this.subs.get(c.id);
+    if (sub !== undefined) {
+      sub.setWindowTitle(c.title).catch((e: BusinessError) => {
+        console.error(`mygo: title ${c.id}: ${e.message}`);
+      });
+      return;
+    }
     const w = this.sysWindow;
     if (w === null) {
       return;
@@ -800,6 +811,11 @@ export class Host extends HostStubs {
       }
       return;
     }
+    const last = this.placedAt.get(id);
+    if (last !== undefined && last[0] === x && last[1] === y && last[2] === w && last[3] === h) {
+      return;  // the same place as last time: a person may have moved it
+    }
+    this.placedAt.set(id, [x, y, w, h]);
     sub.moveWindowTo(x, y).catch((e: BusinessError) => {
       console.error(`mygo: place ${id}: ${e.message}`);
     });
@@ -819,6 +835,14 @@ export class Host extends HostStubs {
     stage.createSubWindow(`mygo-${id}`).then((sub: window.Window) => {
       this.subs.set(id, sub);
       this.creating.delete(id);
+      // A child window's bar is off by default: no title, no drag, no close
+      // button, and the system will not give it the focus.
+      sub.setWindowDecorVisible(true);
+      sub.setWindowTitle(`mygo ${id}`);
+      sub.setWindowTitleMoveEnabled(true);
+      sub.setWindowFocusable(true);
+      sub.setWindowDecorHeight(40);
+      sub.setWindowLimits({ maxWidth: 10000, maxHeight: 10000, minWidth: 120, minHeight: 80 });
       const place = this.pendingPlaces.get(id);
       if (place !== undefined) {
         this.pendingPlaces.delete(id);
