@@ -128,9 +128,10 @@ export class Host extends HostStubs {
     if (this.mainWindowId === 0) {
       this.mainWindowId = c.id;
     } else if (c.surface) {
-      // A window of the app's, drawing with a component of its own.
+      // A window of the app's is an instance of its own, made when Go shows
+      // it: an app makes windows it does not show, and each would be one.
       this.surfaceWindows.add(c.id);
-      this.makeSub(c.id);
+      this.pendingWindows.add(c.id);
     }
     const r = new CreateWindowReply();
     r.error = '';
@@ -156,6 +157,11 @@ export class Host extends HostStubs {
     if (this.handle !== 0) {
       this.windowSize();
     }
+    if (this.pendingWindows.has(c.id)) {
+      this.pendingWindows.delete(c.id);
+      this.startInstance(c.id);
+      return;
+    }
     const sub = this.subs.get(c.id);
     if (sub === undefined) {
       return;
@@ -164,6 +170,23 @@ export class Host extends HostStubs {
       this.decorate(c.id, sub);
     }).catch((e: BusinessError) => {
       console.error(`mygo: show ${c.id}: ${e.message}`);
+    });
+  }
+
+  // startInstance starts the app again, as the window it draws: an instance
+  // of the ability is a window of its own, with a task entry and a focus.
+  private startInstance(id: number): void {
+    const ctx = this.ctx as common.UIAbilityContext;
+    if (ctx === null) {
+      console.error(`mygo: no ability for window ${id}`);
+      return;
+    }
+    ctx.startAbility({
+      bundleName: ctx.abilityInfo.bundleName,
+      abilityName: ctx.abilityInfo.name,
+      parameters: { mygoWindow: id },
+    }).catch((e: BusinessError) => {
+      console.error(`mygo: window ${id}: ${e.code} ${e.message}`);
     });
   }
 
@@ -1515,6 +1538,7 @@ export class Host extends HostStubs {
   sizeOf: Map<number, [number, number]> = new Map();
   // The windows of the app's that draw with a surface of their own.
   private surfaceWindows: Set<number> = new Set();
+  private pendingWindows: Set<number> = new Set();
 
   private isSurfaceWindow(id: number): boolean {
     return this.surfaceWindows.has(id);

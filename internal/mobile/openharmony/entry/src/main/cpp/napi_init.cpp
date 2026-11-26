@@ -47,6 +47,21 @@ napi_ref g_surface = nullptr;    // (handle, width, height, scale) => void
 napi_ref g_touch = nullptr;      // (phase, x, y) => void
 napi_threadsafe_function g_post = nullptr;
 napi_threadsafe_function g_calls = nullptr;  // calls of Go's for the JS thread
+napi_threadsafe_function g_relay = nullptr;  // events of other windows, for it
+
+// dispatchOnJS runs one call of Go's on the host of the instance that runs
+// Go: defined below, where the module's methods are.
+void dispatchOnJS(const uint8_t *msg, size_t len, std::vector<uint8_t> &out);
+
+// A call of Go's from a thread that is not the JS thread's, which waits
+// while the JS thread runs it.
+struct crossCall {
+    std::mutex mu;
+    std::condition_variable cv;
+    bool done = false;
+    std::vector<uint8_t> msg;
+    std::vector<uint8_t> out;
+};
 
 // A window of the app's draws with a component of its own: the surface ArkUI
 // made for it, which Go draws into.
@@ -54,6 +69,16 @@ struct windowComponent {
     OH_NativeXComponent *component = nullptr;
     uint64_t handle = 0;
 };
+
+// A window of the app's is an instance of the page, with a VM of its own:
+// its callbacks live in that VM, and only it may be called with them.
+struct windowHost {
+    napi_env env = nullptr;
+    napi_ref surface = nullptr;  // (id, handle, width, height, scale) => void
+    napi_ref touch = nullptr;    // (id, phase, x, y) => void
+};
+
+std::map<int, windowHost> g_hosts;
 
 // g_windows is the components, by the window they draw for; g_unbound those
 // the module was loaded with, before the page said which window it is.
@@ -105,11 +130,19 @@ void postJS(napi_env env, napi_value cb, void *, void *) {
 
 // callSurface reports the window ArkUI made, or 0 when it is gone.
 void callSurface(int id, uint64_t handle, double width, double height, double scale) {
-    if (g_env == nullptr || g_surface == nullptr) {
+    windowHost host;
+    auto hit = g_hosts.find(id);
+    if (hit != g_hosts.end()) {
+        host = hit->second;
+    } else {
+        host.env = g_env;
+        host.surface = g_surface;
+    }
+    if (host.env == nullptr || host.surface == nullptr) {
         return;
     }
     napi_handle_scope scope;
-    if (napi_open_handle_scope(g_env, &scope) != napi_ok) {
+    if (napi_open_handle_scope(host.env, &scope) != napi_ok) {
         return;
     }
     napi_value cb = nullptr;
@@ -117,19 +150,19 @@ void callSurface(int id, uint64_t handle, double width, double height, double sc
     napi_value result = nullptr;
     napi_value argv[5] = {nullptr, nullptr, nullptr, nullptr, nullptr};
     double args[4] = {static_cast<double>(handle), width, height, scale};
-    napi_get_reference_value(g_env, g_surface, &cb);
-    napi_get_global(g_env, &global);
-    napi_create_int32(g_env, id, &argv[0]);
+    napi_get_reference_value(host.env, host.surface, &cb);
+    napi_get_global(host.env, &global);
+    napi_create_int32(host.env, id, &argv[0]);
     for (int i = 0; i < 4; i++) {
-        napi_create_double(g_env, args[i], &argv[i + 1]);
+        napi_create_double(host.env, args[i], &argv[i + 1]);
     }
     if (cb != nullptr) {
-        napi_status st = napi_call_function(g_env, global, cb, 5, argv, &result);
+        napi_status st = napi_call_function(host.env, global, cb, 5, argv, &result);
         if (st != napi_ok) {
             LOGE("MYGO the host did not take the surface: %{public}d", static_cast<int>(st));
         }
     }
-    napi_close_handle_scope(g_env, scope);
+    napi_close_handle_scope(host.env, scope);
 }
 
 void OnSurfaceCreated(OH_NativeXComponent *component, void *window) {
@@ -179,7 +212,15 @@ void DispatchTouchEvent(OH_NativeXComponent *component, void *window) {
         default:
             return;
     }
-    if (te.numPoints < 1 || g_env == nullptr || g_touch == nullptr) {
+    windowHost host;
+    auto hit = g_hosts.find(windowOf(component));
+    if (hit != g_hosts.end()) {
+        host = hit->second;
+    } else {
+        host.env = g_env;
+        host.touch = g_touch;
+    }
+    if (te.numPoints < 1 || host.env == nullptr || host.touch == nullptr) {
         return;
     }
     const OH_NativeXComponent_TouchPoint &p = te.touchPoints[0];
@@ -195,16 +236,16 @@ void DispatchTouchEvent(OH_NativeXComponent *component, void *window) {
     napi_value global = nullptr;
     napi_value result = nullptr;
     napi_value argv[4] = {nullptr, nullptr, nullptr, nullptr};
-    napi_create_int32(g_env, windowOf(component), &argv[0]);
-    napi_create_string_utf8(g_env, phase, NAPI_AUTO_LENGTH, &argv[1]);
-    napi_create_double(g_env, p.x, &argv[2]);
-    napi_create_double(g_env, p.y, &argv[3]);
-    napi_get_reference_value(g_env, g_touch, &cb);
-    napi_get_global(g_env, &global);
+    napi_create_int32(host.env, windowOf(component), &argv[0]);
+    napi_create_string_utf8(host.env, phase, NAPI_AUTO_LENGTH, &argv[1]);
+    napi_create_double(host.env, p.x, &argv[2]);
+    napi_create_double(host.env, p.y, &argv[3]);
+    napi_get_reference_value(host.env, host.touch, &cb);
+    napi_get_global(host.env, &global);
     if (cb != nullptr) {
-        napi_call_function(g_env, global, cb, 4, argv, &result);
+        napi_call_function(host.env, global, cb, 4, argv, &result);
     }
-    napi_close_handle_scope(g_env, scope);
+    napi_close_handle_scope(host.env, scope);
 }
 
 void OnSurfaceDestroyed(OH_NativeXComponent *component, void *) {
@@ -252,6 +293,18 @@ bool bytes(napi_value value, uint8_t **out, size_t *n) {
 }
 
 // event hands Go an event of the host and returns Go's reply, if any.
+void relayOnJS(napi_env, napi_value, void *, void *data) {
+    auto *c = static_cast<crossCall *>(data);
+    std::vector<uint8_t> out;
+    dispatchOnJS(c->msg.data(), c->msg.size(), out);
+    {
+        std::lock_guard<std::mutex> lock(c->mu);
+        c->out.swap(out);
+        c->done = true;
+    }
+    c->cv.notify_all();
+}
+
 napi_value event(napi_env env, napi_callback_info info) {
     size_t argc = 1;
     napi_value argv[1] = {nullptr};
@@ -262,6 +315,30 @@ napi_value event(napi_env env, napi_callback_info info) {
     size_t n = 0;
     if (!bytes(argv[0], &msg, &n)) {
         return nullptr;
+    }
+    if (g_jsThread != 0 && static_cast<pid_t>(gettid()) != g_jsThread && g_relay != nullptr) {
+        // A window of its own is an instance of its own: its events go to
+        // the instance that runs Go, which answers them.
+        crossCall c;
+        c.msg.assign(msg, msg + n);
+        std::free(msg);
+        if (napi_call_threadsafe_function(g_relay, &c, napi_tsfn_blocking) != napi_ok) {
+            return nullptr;
+        }
+        std::unique_lock<std::mutex> lock(c.mu);
+        if (!c.cv.wait_for(lock, std::chrono::seconds(2), [&c] { return c.done; })) {
+            LOGE("MYGO event waited 2s for the instance that runs Go");
+            return nullptr;
+        }
+        if (c.out.empty()) {
+            return nullptr;
+        }
+        napi_value out = nullptr;
+        void *p = nullptr;
+        if (napi_create_arraybuffer(env, c.out.size(), &p, &out) == napi_ok) {
+            std::memcpy(p, c.out.data(), c.out.size());
+        }
+        return out;
     }
     uint8_t *reply = nullptr;
     size_t replyLen = 0;
@@ -329,17 +406,6 @@ void dispatchOnJS(const uint8_t *msg, size_t len, std::vector<uint8_t> &out) {
     napi_close_handle_scope(g_env, scope);
 }
 
-// A call of Go's from a thread that is not the JS thread's, which waits
-// while the JS thread runs it: the sound writes on its own thread, and a
-// Go thread's call into the VM is not the VM's to take.
-struct crossCall {
-    std::mutex mu;
-    std::condition_variable cv;
-    bool done = false;
-    std::vector<uint8_t> msg;
-    std::vector<uint8_t> out;
-};
-
 // callOnJS runs a queued call of Go's, on the JS thread.
 void callOnJS(napi_env, napi_value, void *, void *data) {
     auto *c = static_cast<crossCall *>(data);
@@ -361,13 +427,20 @@ std::string componentIdOf(int id) { return id <= 0 ? "mygo" : "mygo-" + std::to_
 // window of the app's has a component of its own, and ArkUI loads the module
 // once for each.
 napi_value bind(napi_env env, napi_callback_info info) {
-    size_t argc = 1;
-    napi_value argv[1] = {nullptr};
+    size_t argc = 3;
+    napi_value argv[3] = {nullptr, nullptr, nullptr};
     if (napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr) != napi_ok || argc < 1) {
         return nullptr;
     }
     int32_t id = 0;
     napi_get_value_int32(env, argv[0], &id);
+    if (argc >= 3) {
+        windowHost host;
+        host.env = env;
+        napi_create_reference(env, argv[1], 1, &host.surface);
+        napi_create_reference(env, argv[2], 1, &host.touch);
+        g_hosts[id] = host;
+    }
     if (g_unbound.empty()) {
         // The page bound its component before Go named the window (to 0):
         // it draws for this one now.
@@ -460,6 +533,12 @@ napi_value start(napi_env env, napi_callback_info info) {
     if (napi_create_threadsafe_function(env, nullptr, nullptr, callsName, 0, 1, nullptr, nullptr, nullptr, callOnJS,
                                         &g_calls) != napi_ok) {
         LOGE("MYGO no threadsafe function for calls");
+    }
+    napi_value relayName = nullptr;
+    napi_create_string_utf8(env, "mygoRelay", NAPI_AUTO_LENGTH, &relayName);
+    if (napi_create_threadsafe_function(env, nullptr, nullptr, relayName, 0, 1, nullptr, nullptr, nullptr, relayOnJS,
+                                        &g_relay) != napi_ok) {
+        LOGE("MYGO no threadsafe function for the other windows");
     }
     mygo_start_ohos();
     return nullptr;
