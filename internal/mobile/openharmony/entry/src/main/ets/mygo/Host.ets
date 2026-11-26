@@ -21,10 +21,10 @@ import { BusinessError } from '@ohos.base';
 import { AppInfoReply, BatteryReply, CreateWindowCall, CreateWindowReply, Event, FirstFrameCall,
   LoadHTMLCall, LoadURLCall, MessageBoxCall, RequestFrameCall, ScreenReply, SetBackgroundCall, SetFrameRateCall, SetTextInputCall,
   ClipboardTextReply, EvalCall, GoBackCall, HapticCall, KeepAwakeCall, NetworkStatusReply,
-  NotifyCall, OpenFilesCall, OpenURLReply, OpenURLCall, RemoveNotificationCall, SaveFileCall,
+  NotifyCall, OpenFilesCall, PlaceViewsCall, OpenURLReply, OpenURLCall, RemoveNotificationCall, SaveFileCall,
   SecretDeleteCall, SecretDeleteReply, SecretGetCall, SecretGetReply, SecretSetCall, SecretSetReply,
   SetClipboardTextCall, SetSystemBarsCall, GoForwardCall, ReloadCall, SetTitleCall, SetZoomCall, ShowWindowCall,
-  StopLoadingCall, ThemeReply, dispatchCall } from './Wire';
+  StopLoadingCall, ThemeReply, WireReader, dispatchCall } from './Wire';
 import { HostStubs } from './HostStubs';
 
 export class Host extends HostStubs {
@@ -56,11 +56,21 @@ export class Host extends HostStubs {
   // The web view Go made, if any: the page's Web component, which the host
   // drives. Its id is Go's window.
   webController: webview.WebviewController | null = null;
+  // The pages of the surface's children, by Go's window id, and what each
+  // was told to load before it existed.
+  private webChildren: Map<number, webview.WebviewController> = new Map();
+  private webSources: Map<number, string> = new Map();
   webVisible: boolean = false;
   webId: number = 0;
   private webSrc: string = '';
   private webHTML: string = '';
   private webBase: string = '';
+  // The windows the surface's pages show in, and the places they wait for.
+  private subs: Map<number, window.Window> = new Map();
+  private pendingPlaces: Map<number, number[]> = new Map();
+  private creating: Set<number> = new Set();
+  // The ids Go last said the surface shows.
+  placed: number[] = [];
   // The page's window, for what the system does to it: bars, the screen
   // staying on.
   sysWindow: window.Window | null = null;
@@ -113,6 +123,13 @@ export class Host extends HostStubs {
 
   // loadURL and loadHTML are what the page shows; the rest drive it.
   loadURL(c: LoadURLCall): void {
+    const child = this.webChildren.get(c.id);
+    if (child !== undefined) {
+      this.webSources.set(c.id, c.url);
+      child.loadUrl(c.url);
+      return;
+    }
+    this.webSources.set(c.id, c.url);
     if (c.id !== this.webId) {
       return;
     }
@@ -171,6 +188,22 @@ export class Host extends HostStubs {
     }
   }
 
+  // registerWeb takes a child window's controller as its page appears, and
+  // loads what Go asked for before it did.
+  registerWeb(id: number, controller: webview.WebviewController): void {
+    this.webChildren.set(id, controller);
+  }
+
+  unregisterWeb(id: number): void {
+    this.webChildren.delete(id);
+  }
+
+  // webSource is what a child window was told to load.
+  webSource(id: number): string {
+    const url = this.webSources.get(id);
+    return url !== undefined ? url : '';
+  }
+
   // applyWeb shows what Go asked for, once the page has its controller.
   private applyWeb(): void {
     const w = this.webController;
@@ -186,27 +219,27 @@ export class Host extends HostStubs {
 
   // webBegan, webEnded and webFailed are the page's own reports, which Go
   // hears as its events.
-  webBegan(url: string): void {
-    if (this.webId !== 0) {
-      this.send(Event.navigationStarted(this.webId, url));
+  webBegan(id: number, url: string): void {
+    if (id !== 0) {
+      this.send(Event.navigationStarted(id, url));
     }
   }
 
-  webEnded(url: string, title: string): void {
-    const w = this.webController;
-    if (this.webId === 0) {
+  webEnded(id: number, url: string, title: string): void {
+    const w = this.webChildren.get(id) ?? this.webController;
+    if (id === 0) {
       return;
     }
-    const back = w !== null && w.accessBackward();
-    const forward = w !== null && w.accessForward();
-    this.send(Event.navigationCommitted(this.webId, url));
-    this.send(Event.pageState(this.webId, url, title, false, back, forward));
-    this.send(Event.loadFinished(this.webId));
+    const back = w !== null && w !== undefined && w.accessBackward();
+    const forward = w !== null && w !== undefined && w.accessForward();
+    this.send(Event.navigationCommitted(id, url));
+    this.send(Event.pageState(id, url, title, false, back, forward));
+    this.send(Event.loadFinished(id));
   }
 
-  webFailed(url: string, code: number, description: string): void {
-    if (this.webId !== 0) {
-      this.send(Event.loadFailed(this.webId, url, code, description));
+  webFailed(id: number, url: string, code: number, description: string): void {
+    if (id !== 0) {
+      this.send(Event.loadFailed(id, url, code, description));
     }
   }
 
@@ -672,6 +705,100 @@ export class Host extends HostStubs {
     const n = this.nextNotificationId++;
     this.notificationIds.set(id, n);
     return n;
+  }
+
+  // placeViews is where the surface shows the pages it holds: a window of
+  // their own, at the place, over the surface — which is a layer above
+  // ArkUI and would hide them.
+  placeViews(c: PlaceViewsCall): void {
+    const r = new WireReader(c.places);
+    const shown: number[] = [];
+    while (!r.done()) {
+      const id = r.int();
+      const fx = r.float();
+      const fy = r.float();
+      const fw = r.float();
+      const fh = r.float();
+      const cx = r.float();
+      const cy = r.float();
+      const cw = r.float();
+      const ch = r.float();
+      const covers = r.int();
+      for (let i = 0; i < covers * 4; i++) {
+        r.float();
+      }
+      if (id === 0) {
+        continue;
+      }
+      shown.push(id);
+      // The place is in DIPs of the surface: the subwindow takes the
+      // screen's pixels.
+      const scale = this.scale > 0 ? this.scale : 1;
+      console.info(`mygo: place ${id} at ${fx},${fy} ${fw}x${fh}`);
+      this.place(id, Math.round(fx * scale), Math.round(fy * scale),
+        Math.round(Math.min(fw, cw) * scale), Math.round(Math.min(fh, ch) * scale));
+    }
+    this.placed = shown;
+  }
+
+  // place puts a child window's page at x, y, w, h of the screen.
+  private place(id: number, x: number, y: number, w: number, h: number): void {
+    const sub = this.subs.get(id);
+    if (this.ctx === undefined) {
+      return;
+    }
+    if (sub === undefined) {
+      this.pendingPlaces.set(id, [x, y, w, h]);
+      if (!this.creating.has(id)) {
+        this.creating.add(id);
+        this.makeSub(id);
+      }
+      return;
+    }
+    sub.moveWindowTo(x, y).catch((e: BusinessError) => {
+      console.error(`mygo: place ${id}: ${e.message}`);
+    });
+    sub.resize(w, h).catch((e: BusinessError) => {
+      console.error(`mygo: size ${id}: ${e.message}`);
+    });
+  }
+
+  // makeSub makes the window a page of the surface shows in, once.
+  private makeSub(id: number): void {
+    const stage = AppStorage.get<window.WindowStage>('windowStage');
+    if (stage === undefined) {
+      console.error('mygo: no window stage for a child window');
+      this.creating.delete(id);
+      return;
+    }
+    stage.createSubWindow(`mygo-${id}`).then((sub: window.Window) => {
+      this.subs.set(id, sub);
+      this.creating.delete(id);
+      const place = this.pendingPlaces.get(id);
+      if (place !== undefined) {
+        this.pendingPlaces.delete(id);
+        sub.moveWindowTo(place[0], place[1]).catch(() => {});
+        sub.resize(place[2], place[3]).catch(() => {});
+      }
+      sub.loadContent('pages/Embedded', this.local(id)).then(() => {
+        sub.showWindow().catch((e: BusinessError) => {
+          console.error(`mygo: show ${id}: ${e.message}`);
+        });
+      }).catch((e: BusinessError) => {
+        console.error(`mygo: content ${id}: ${e.message}`);
+      });
+    }).catch((e: BusinessError) => {
+      this.creating.delete(id);
+      console.error(`mygo: subwindow ${id}: ${e.message}`);
+    });
+  }
+
+  // local hands the page its window's id, which a subwindow's page cannot
+  // otherwise know.
+  private local(id: number): LocalStorage {
+    const storage = new LocalStorage();
+    storage.setOrCreate('id', id);
+    return storage;
   }
 
   // requestFrame notes that Go has something to draw: the display's next

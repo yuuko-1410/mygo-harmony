@@ -85,6 +85,13 @@ takes the first typeface that really maps the rune (a check, not a hope).
 - the keyboard: `SetTextInput` places a see-through `TextInput` over what Go
   draws, focuses it, and the keys it takes go back as `TextReplace` and
   `TextCommand` — a field is typed in, and what Go draws says what it holds;
+- pages inside a surface: `PlaceViews` gives each child window's place, and
+  the host shows it in a window of its own (`windowStage.createSubWindow`),
+  moved and sized there, with the child's page loading through
+  `pages/Embedded` — a surface is a layer above ArkUI's, so a web view
+  cannot sit on it in the same window. The host ignores the covers, the
+  places the content painted over a page, so a finger over one goes to the
+  page;
 - pages: a window Go makes without a surface is ArkUI's `Web` component,
   loaded with `LoadURL`/`LoadHTML` and driven by `Reload`, `GoBack`,
   `GoForward`, `Eval` and `SetZoom`; its navigation comes back as

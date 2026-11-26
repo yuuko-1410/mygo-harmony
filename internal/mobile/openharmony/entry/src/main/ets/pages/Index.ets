@@ -3,13 +3,12 @@ import displaySync from '@ohos.graphics.displaySync';
 import display from '@ohos.display';
 import window from '@ohos.window';
 import webview from '@ohos.web.webview';
-import { Host } from '../mygo/Host';
+import { shared as host } from '../mygo/Shared';
 import { Event } from '../mygo/Wire';
 
 // ArkUI may build the page again, with a new struct: Go and its host are
 // one, on the module, not on the struct that comes and goes.
 let started: boolean = false;
-const host: Host = new Host();
 
 @Entry
 @Component
@@ -146,14 +145,14 @@ struct Index {
         .javaScriptAccess(true)
         .opacity(this.webVisible ? 1 : 0)
         .onPageBegin((event: OnPageBeginEvent) => {
-          host.webBegan(event.url);
+          host.webBegan(host.webId, event.url);
         })
         .onPageEnd((event: OnPageEndEvent) => {
-          host.webEnded(event.url, event.url);
+          host.webEnded(host.webId, event.url, event.url);
         })
         .onErrorReceive((event: OnErrorReceiveEvent) => {
           if (event.error) {
-            host.webFailed(event.request.getRequestUrl(), event.error.getErrorCode(),
+            host.webFailed(host.webId, event.request.getRequestUrl(), event.error.getErrorCode(),
               event.error.getErrorInfo());
           }
         })
