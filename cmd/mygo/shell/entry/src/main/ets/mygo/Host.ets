@@ -15,6 +15,7 @@ import fs from '@ohos.file.fs';
 import hilog from '@ohos.hilog';
 import image from '@ohos.multimedia.image';
 import audio from '@ohos.multimedia.audio';
+import bundleManager from '@ohos.bundle.bundleManager';
 import notificationManager from '@ohos.notificationManager';
 import { systemShare } from '@kit.ShareKit';
 import { uniformTypeDescriptor } from '@kit.ArkData';
@@ -39,7 +40,7 @@ import { AppInfoReply, BatteryReply, CreateWindowCall, CreateWindowReply, Event,
   CloseWindowCall, FocusCall, HideMagnifierCall, HideMenuCall, HideWindowCall, NotifyCall, OpenFilesCall, ShareCall, ShareFileCall, PlaceViewsCall, OpenURLReply, OpenURLCall, RemoveNotificationCall, SaveFileCall,
   SecretDeleteCall, SecretDeleteReply, SecretGetCall, SecretGetReply, SecretSetCall, SecretSetReply,
   SetClipboardTextCall, SetSystemBarsCall, GoForwardCall, ReloadCall, SetTitleCall, SetZoomCall, ShowWindowCall,
-  StopLoadingCall, ThemeReply, WireReader, dispatchCall } from './Wire';
+  StopLoadingCall, ThemeReply, WireReader, BackPressedReply, dispatchCall } from './Wire';
 import { HostStubs } from './HostStubs';
 
 export class Host extends HostStubs {
@@ -102,6 +103,11 @@ export class Host extends HostStubs {
   fps: number = 0;
   // Sends an event to Go: the page's native.event.
   send: (buf: Uint8Array) => void = (buf: Uint8Array) => {};
+  // ask sends an event Go answers, and reads its reply.
+  ask: (buf: Uint8Array) => Uint8Array | null = (buf: Uint8Array): Uint8Array | null => null;
+  // mainWindow is the window Go made first: the app's own, as Android's is
+  // the Activity's.
+  private mainWindowId: number = 0;
   private wanted: boolean = false;
   // The surface, which may come before the window Go asks for.
   private handle: number = 0;
@@ -116,6 +122,9 @@ export class Host extends HostStubs {
       this.webVisible = true;
     }
     this.windowId = c.id;
+    if (this.mainWindowId === 0) {
+      this.mainWindowId = c.id;
+    }
     const r = new CreateWindowReply();
     r.error = '';
     r.layer = 0;
@@ -1389,6 +1398,16 @@ export class Host extends HostStubs {
     r.name = 'mygo';
     r.identifier = 'dev.mygo.app';
     r.version = '0.0.1';
+    // The app's own: what it is called is where it keeps what it keeps.
+    try {
+      const info = bundleManager.getBundleInfoForSelfSync(
+        bundleManager.BundleFlag.GET_BUNDLE_INFO_DEFAULT);
+      r.name = info.name;
+      r.identifier = info.name;
+      r.version = info.versionName;
+    } catch (e) {
+      console.error(`mygo: app info: ${e}`);
+    }
     r.filesDir = getContext().filesDir;
     r.cacheDir = getContext().cacheDir;
     r.tempDir = getContext().tempDir;
@@ -1434,6 +1453,25 @@ export class Host extends HostStubs {
 
   // windowSize tells Go the window's size in DIPs, its scale and its
   // insets, then where to draw: it draws nothing while it knows no size.
+  // back is the system's back, as Android's: the window in front's content
+  // takes it, and a window that does not take it goes, a window of Go's
+  // own being closed as the system closes an Activity's. A PC has no back
+  // button: Escape is its own, and the page's.
+  back(): void {
+    const id = this.windowId;
+    if (id === 0) {
+      return;
+    }
+    let handled = false;
+    const reply = this.ask(Event.backPressed(id));
+    if (reply !== null && reply.length > 0) {
+      handled = BackPressedReply.decode(new WireReader(reply)).handled;
+    }
+    if (!handled && id !== this.mainWindowId) {
+      this.send(Event.popped(id));
+    }
+  }
+
   // surfaceWindow is the window that draws into the one native window the
   // XComponent has: EGL makes a surface a window at a time, and a second
   // window's attempt on the same one is EGL_BAD_ALLOC — a window that draws

@@ -4,6 +4,7 @@ import display from '@ohos.display';
 import window from '@ohos.window';
 import webview from '@ohos.web.webview';
 import mediaquery from '@ohos.mediaquery';
+import { KeyCode } from '@ohos.multimodalInput.keyCode';
 import { shared as host } from '../mygo/Shared';
 import { Event } from '../mygo/Wire';
 
@@ -33,6 +34,10 @@ struct Index {
   aboutToAppear(): void {
     host.send = (buf: Uint8Array): void => {
       native.event(buf);
+    };
+    host.ask = (buf: Uint8Array): Uint8Array | null => {
+      const reply: ArrayBuffer | undefined = native.event(buf) as ArrayBuffer | undefined;
+      return reply === undefined ? null : new Uint8Array(reply);
     };
     const d = display.getDefaultDisplaySync();
     host.scale = d.densityPixels;
@@ -230,5 +235,14 @@ struct Index {
     .width('100%')
     .height('100%')
     .backgroundColor(this.windowColor)
+    // Escape is a PC's back: the page in front, or the window that shows
+    // it, goes.
+    .onKeyEvent((e: KeyEvent) => {
+      if (e.type === KeyType.Down && e.keyCode === KeyCode.KEYCODE_ESCAPE) {
+        host.back();
+        return true;
+      }
+      return false;
+    })
   }
 }
