@@ -30,7 +30,7 @@ import { AppInfoReply, BatteryReply, CreateWindowCall, CreateWindowReply, Event,
   AudioWriteCall, AudioWriteReply, CallAsyncCall, CapturePageCall, ClipboardImageReply, CloseTabsCall,
   CreateTabsCall, DrawTextCall, DrawTextReply, LogCall, MeasureTextCall, MeasureTextReply,
   MeasureTextRunCall, MeasureTextRunReply, PluginCallCall, PopWindowCall, PopupMenuCall,
-  PushWindowCall, RegisterFontCall, RegisterFontReply, SchemeDataCall, SchemeFailCall, SchemeFetchReply,
+  PushWindowCall, RegisterFontCall, RegisterFontReply, SchemeDataCall, SchemeFailCall,
   SchemeFinishCall, SchemeRespondCall, SelectTabCall, SetAppearanceCall, SetBackAvailableCall,
   SetBarItemsCall, SetClipboardImageCall, SetCursorCall, SetOrientationsCall, SetStackCall,
   SetStackReply, SetTabBadgeCall, SetUserAgentCall, SetUserScriptsCall, ShowMagnifierCall,
@@ -102,10 +102,6 @@ export class Host extends HostStubs {
   fps: number = 0;
   // Sends an event to Go: the page's native.event.
   send: (buf: Uint8Array) => void = (buf: Uint8Array) => {};
-  // Sends an event Go answers, and returns the answer: the page's
-  // native.event, whose reply is an ArrayBuffer or nothing.
-  sendWaiting: (buf: Uint8Array) => Uint8Array | null =
-    (buf: Uint8Array): Uint8Array | null => null;
   private wanted: boolean = false;
   // The surface, which may come before the window Go asks for.
   private handle: number = 0;
@@ -1084,64 +1080,20 @@ export class Host extends HostStubs {
 
   // The app's schemes reach the web engine's requests, which the page
   // intercepts; the answers Go gives go to that request.
-  // schemeFetch asks Go for a whole response, in the same call: ArkUI's web
-  // engine must be given the answer as it asks, so the request waits.
-  // isAppScheme tells whether the app serves a URL's scheme.
-  isAppScheme(url: string): boolean {
-    const cut = url.indexOf('://');
-    if (cut < 0) {
-      return false;
-    }
-    return this.schemes.includes(url.substring(0, cut));
-  }
-
-  schemeFetch(id: number, method: string, url: string, header: string[], body: Uint8Array,
-    hasBody: boolean): SchemeFetchReply | null {
-    const reply = this.sendWaiting(Event.schemeFetch(id, method, url, header, body, hasBody));
-    if (reply === null) {
-      return null;
-    }
-    return SchemeFetchReply.decode(new WireReader(reply));
-  }
-
+  // A scheme's answer arrives in parts, which a page needs in one call:
+  // ArkUI's web engine asks in the same call it must be given one, so the
+  // parts cannot be handed over yet — see NOTES.md.
   schemeRespond(c: SchemeRespondCall): void {
-    this.schemeAnswer(c.req, c.status, c.header, new Uint8Array(0));
   }
 
   schemeData(c: SchemeDataCall): void {
-    this.schemeBody(c.req, c.data);
   }
 
   schemeFinish(c: SchemeFinishCall): void {
   }
 
   schemeFail(c: SchemeFailCall): void {
-    this.schemeAnswer(c.req, 404, [], new Uint8Array(0));
   }
-
-  private schemeAnswer(req: number, status: number, header: string[], body: Uint8Array): void {
-    // The interception is synchronous for ArkUI's web engine: the host asks
-    // Go before the request, and this is where the answer lands.
-    this.schemeStatus.set(req, status);
-    if (body.length > 0) {
-      this.schemeBodies.set(req, body);
-    }
-  }
-
-  private schemeBody(req: number, data: Uint8Array): void {
-    const seen = this.schemeBodies.get(req);
-    if (seen === undefined) {
-      this.schemeBodies.set(req, data);
-      return;
-    }
-    const joined = new Uint8Array(seen.length + data.length);
-    joined.set(seen, 0);
-    joined.set(data, seen.length);
-    this.schemeBodies.set(req, joined);
-  }
-
-  private schemeStatus: Map<number, number> = new Map();
-  private schemeBodies: Map<number, Uint8Array> = new Map();
 
   // The tabs, the stack and the bars of a phone are drawn by the host, and
   // this host draws none: a surface is a layer above ArkUI's, so a bar of

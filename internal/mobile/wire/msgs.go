@@ -131,34 +131,33 @@ const (
 	EventWindowFront         = 33
 	EventProcessGone         = 34
 	EventPermissionRequested = 35
-	EventSchemeFetch         = 36
-	EventSchemeRequest       = 37
-	EventSchemeCancel        = 38
-	EventAsyncResult         = 39
-	EventCaptured            = 40
-	EventMessageBoxResult    = 41
-	EventFilesResult         = 42
-	EventNotifyDone          = 43
-	EventNotificationClicked = 44
-	EventFrame               = 45
-	EventSurfaceChanged      = 46
-	EventSurfaceDestroyed    = 47
-	EventTouch               = 48
-	EventScroll              = 49
-	EventKey                 = 50
-	EventTextReplace         = 51
-	EventTextMark            = 52
-	EventTextUnmark          = 53
-	EventTextDelete          = 54
-	EventTextSelect          = 55
-	EventTextCommand         = 56
-	EventTextState           = 57
-	EventTextRange           = 58
-	EventTextBounds          = 59
-	EventTextIndexAt         = 60
-	EventTextInputEnded      = 61
-	EventAccessibilityTree   = 62
-	EventAccessibilityAction = 63
+	EventSchemeRequest       = 36
+	EventSchemeCancel        = 37
+	EventAsyncResult         = 38
+	EventCaptured            = 39
+	EventMessageBoxResult    = 40
+	EventFilesResult         = 41
+	EventNotifyDone          = 42
+	EventNotificationClicked = 43
+	EventFrame               = 44
+	EventSurfaceChanged      = 45
+	EventSurfaceDestroyed    = 46
+	EventTouch               = 47
+	EventScroll              = 48
+	EventKey                 = 49
+	EventTextReplace         = 50
+	EventTextMark            = 51
+	EventTextUnmark          = 52
+	EventTextDelete          = 53
+	EventTextSelect          = 54
+	EventTextCommand         = 55
+	EventTextState           = 56
+	EventTextRange           = 57
+	EventTextBounds          = 58
+	EventTextIndexAt         = 59
+	EventTextInputEnded      = 60
+	EventAccessibilityTree   = 61
+	EventAccessibilityAction = 62
 )
 
 // AppInfo is the app's bundle and the system's settings, asked once at start.
@@ -2235,39 +2234,6 @@ func (m *PermissionRequestedReply) Encode(w *Writer) {
 	w.Bool(m.Allow)
 }
 
-// SchemeFetchEvent is a request of one of the app's schemes, answered at once with all of it: the hosts whose web engine must hand the response back in the same call, as ArkUI's does. It carries the request and its answer, which SchemeRequest and its three parts carry as they come.
-type SchemeFetchEvent struct {
-	ID      int
-	Method  string
-	URL     string
-	Header  []string
-	Body    []byte
-	HasBody bool
-}
-
-func (m *SchemeFetchEvent) Decode(r *Reader) {
-	m.ID = r.Int()
-	m.Method = r.String()
-	m.URL = r.String()
-	m.Header = r.Strings()
-	m.Body = r.Bytes()
-	m.HasBody = r.Bool()
-}
-
-type SchemeFetchReply struct {
-	Status int
-	Header []string
-	Body   []byte
-	Error  string
-}
-
-func (m *SchemeFetchReply) Encode(w *Writer) {
-	w.Int(m.Status)
-	w.Strings(m.Header)
-	w.Bytes(m.Body)
-	w.String(m.Error)
-}
-
 // SchemeRequestEvent is a request of one of the app's schemes (Header: names and values in turn).
 type SchemeRequestEvent struct {
 	ID      int
@@ -2763,7 +2729,7 @@ func (m *AccessibilityActionReply) Encode(w *Writer) {
 // EventWaits reports whether the host waits for the reply of event op.
 func EventWaits(op uint64) bool {
 	switch op {
-	case EventBackground, EventTerminating, EventBackPressed, EventWillNavigate, EventNewWindow, EventPermissionRequested, EventSchemeFetch, EventSurfaceDestroyed, EventKey, EventTextReplace, EventTextMark, EventTextUnmark, EventTextDelete, EventTextSelect, EventTextCommand, EventTextState, EventTextRange, EventTextBounds, EventTextIndexAt, EventAccessibilityTree, EventAccessibilityAction:
+	case EventBackground, EventTerminating, EventBackPressed, EventWillNavigate, EventNewWindow, EventPermissionRequested, EventSurfaceDestroyed, EventKey, EventTextReplace, EventTextMark, EventTextUnmark, EventTextDelete, EventTextSelect, EventTextCommand, EventTextState, EventTextRange, EventTextBounds, EventTextIndexAt, EventAccessibilityTree, EventAccessibilityAction:
 		return true
 	}
 	return false

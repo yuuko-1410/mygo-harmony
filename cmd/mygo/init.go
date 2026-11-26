@@ -69,9 +69,10 @@ func runInit(args []string) error {
 	// The tool built from a checkout pins that checkout: it is the MyGo with
 	// the platforms this one has, OpenHarmony's among them.
 	explicit := *local != ""
+	pinned := false
 	if !explicit {
 		if src := ohosSource(); src != "" {
-			*local = src
+			*local, pinned = src, true
 			logf("Using the MyGo of this checkout: %s", src)
 		}
 	}
@@ -88,11 +89,12 @@ func runInit(args []string) error {
 		}
 		runtime := filepath.Join(checkout, "packages", "runtime")
 		if _, err := os.Stat(filepath.Join(runtime, "dist", "index.js")); err != nil {
-			if explicit {
+			if explicit || !pinned {
 				return fmt.Errorf("the packages of %s are not built: run bun install && bun run build there first", checkout)
 			}
-			// The web template needs the checkout's packages built, and this
-			// checkout's are not: the published module has them.
+			// Pinned to this checkout for its OpenHarmony backend, whose
+			// packages are not built: the web template takes MyGo from the
+			// module proxy instead, which has them.
 			warnf("The packages of %s are not built: this project takes MyGo from the module proxy, not from the checkout", checkout)
 			*local = ""
 		} else {
