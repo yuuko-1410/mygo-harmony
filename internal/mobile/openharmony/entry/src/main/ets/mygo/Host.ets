@@ -119,7 +119,10 @@ export class Host extends HostStubs {
     const r = new CreateWindowReply();
     r.error = '';
     r.layer = 0;
-    if (this.handle !== 0) {
+    // The first window draws on the surface until Go shows another: a
+    // window made behind the one that shows draws nothing, and taking the
+    // surface for it leaves the one that shows with none.
+    if (this.handle !== 0 && this.surfaceWindow === 0) {
       this.windowSize();
     }
     return r;
@@ -127,6 +130,11 @@ export class Host extends HostStubs {
 
   showWindow(c: ShowWindowCall): void {
     this.windowId = c.id;
+    // The window that shows draws: it takes the surface, and the one that
+    // had it lets go (windowSize).
+    if (this.handle !== 0) {
+      this.windowSize();
+    }
     const sub = this.subs.get(c.id);
     if (sub !== undefined) {
       sub.showWindow().catch((e: BusinessError) => {
@@ -147,6 +155,9 @@ export class Host extends HostStubs {
   }
 
   closeWindow(c: CloseWindowCall): void {
+    if (this.surfaceWindow === c.id) {
+      this.surfaceWindow = 0;
+    }
     const sub = this.subs.get(c.id);
     if (sub === undefined) {
       return;
@@ -972,12 +983,38 @@ export class Host extends HostStubs {
 
   // setAppearance is what the app asks of the window, which the theme this
   // host reports follows: "dark", "light" or the system's.
+  // setAppearance is the app choosing light, dark, or the system's: the
+  // host takes it, and tells Go the theme changed so that it draws again
+  // with it — a choice nobody tells Go of changes nothing on the screen.
   setAppearance(c: SetAppearanceCall): void {
+    const was = this.dark;
     this.appearance = c.source;
     if (c.source === 'dark') {
       this.dark = true;
     } else if (c.source === 'light') {
       this.dark = false;
+    } else {
+      this.dark = this.systemDark;
+    }
+    if (this.dark !== was || c.source === 'system') {
+      this.send(Event.themeChanged());
+    }
+  }
+
+  // systemDark is whether the system is dark now, which the page keeps: a
+  // media query needs the UI its context is in.
+  systemDark: boolean = false;
+
+  // systemThemeChanged is the system's colors changing: the app follows
+  // them while it follows the system.
+  systemThemeChanged(): void {
+    if (this.appearance !== 'system') {
+      return;
+    }
+    const was = this.dark;
+    this.dark = this.systemDark;
+    if (this.dark !== was) {
+      this.send(Event.themeChanged());
     }
   }
 
@@ -1397,11 +1434,23 @@ export class Host extends HostStubs {
 
   // windowSize tells Go the window's size in DIPs, its scale and its
   // insets, then where to draw: it draws nothing while it knows no size.
+  // surfaceWindow is the window that draws into the one native window the
+  // XComponent has: EGL makes a surface a window at a time, and a second
+  // window's attempt on the same one is EGL_BAD_ALLOC — a window that draws
+  // nothing, which is what a settings page opened over the app looked like.
+  private surfaceWindow: number = 0;
+
   private windowSize(): void {
     if (this.windowId === 0 || this.handle === 0) {
       return;
     }
     const scale = this.scale > 0 ? this.scale : 1;
+    if (this.surfaceWindow !== 0 && this.surfaceWindow !== this.windowId) {
+      // The window that had it lets go before the next one holds it.
+      this.send(Event.surfaceChanged(this.surfaceWindow, 0, 0, 0, scale, 60));
+      this.surfaceWindow = 0;
+    }
+    this.surfaceWindow = this.windowId;
     this.send(Event.surfaceChanged(this.windowId, this.handle, this.width, this.height, scale, 60));
     this.send(Event.resized(this.windowId, this.width / scale, this.height / scale, scale,
       this.insetTop / scale, this.insetLeft / scale, this.insetBottom / scale, this.insetRight / scale,

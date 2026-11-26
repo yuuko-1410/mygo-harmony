@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 )
 
 // OpenHarmony (HarmonyOS) builds an app as a HAP: the Go code compiles to a
@@ -626,6 +627,16 @@ func (s *devSession) launchOhos(dc *Config, hap string, env []string) (*exec.Cmd
 	// none, and the window shows nothing or the app goes as it starts. It
 	// stops first, and its window goes with it.
 	exec.Command(hdc, "-t", serial, "shell", "aa", "force-stop", dc.Identifier).Run()
+	// And gone before its files change: an app that is still going as its
+	// HAP is installed over it has the window it had, and no surface to
+	// draw into, which is a window of nothing, or a crash three seconds in.
+	for i := 0; i < 20; i++ {
+		out, err := exec.Command(hdc, "-t", serial, "shell", "pidof", dc.Identifier).Output()
+		if err != nil || strings.TrimSpace(string(out)) == "" {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 	if out, err := exec.Command(hdc, "-t", serial, "install", "-r", hap).CombinedOutput(); err != nil {
 		return nil, nil, fmt.Errorf("hdc install: %v\n%s", err, strings.TrimSpace(string(out)))
 	}

@@ -3,6 +3,7 @@ import displaySync from '@ohos.graphics.displaySync';
 import display from '@ohos.display';
 import window from '@ohos.window';
 import webview from '@ohos.web.webview';
+import mediaquery from '@ohos.mediaquery';
 import { shared as host } from '../mygo/Shared';
 import { Event } from '../mygo/Wire';
 
@@ -67,6 +68,13 @@ struct Index {
       }
     });
     this.sync.start();
+    // The system's colors, which the app follows while it follows them.
+    const darkMode = mediaquery.matchMediaSync('(dark-mode: true)');
+    host.systemDark = darkMode.matches;
+    darkMode.on('change', (r: mediaquery.MediaQueryResult) => {
+      host.systemDark = r.matches;
+      host.systemThemeChanged();
+    });
     // A heartbeat: a hang leaves the last call it was in, in the log.
     setInterval(() => {
       host.heartbeat();
