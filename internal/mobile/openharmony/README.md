@@ -174,3 +174,28 @@ The host answers a window, a surface, frames and touch. Everything else — the
 keyboard, the web view, tabs, accessibility, insets, the services — is
 `HostStubs` for now, which logs and does nothing; the calls exist in
 `Wire.ets` already, so each is a method of `Host.ets` away.
+
+## Every call, answered
+
+All 88 calls of the protocol now have an implementation: none is left to
+`HostStubs`.
+
+Answered by the platform: `TimeZone` (the system's), `Appearance` (which the
+theme reported follows), `Log`, `WatchNetwork` with `NetworkChanged`, the
+clipboard's picture, the web view's user agent and its scripts, `CallAsync`,
+the sound's output (`AudioRenderer`), the cursor and the back availability
+(kept), and `Announce`, which the system's accessibility service has no node
+of a drawing to speak from, so it goes to the log.
+
+Answered as unsupported, deliberately and not silently, because a surface is
+a layer above ArkUI's and a window of the app's has none of these overlays:
+the bars of tabs (`CreateTabs` … `CloseTabs`), the stack of a phone
+(`PushWindow`, `PopWindow`, `SetStack`, `StackShown`), the bar's items, the
+popup menu (answered at once as dismissed, so nothing waits), the edit menu
+and the magnifier, a plugin's native code, a page's snapshot, and the app's
+schemes through the web engine's requests.
+
+The text calls (`TextMetrics`, `MeasureText`, `TextAdvances`,
+`MeasureTextRun`, `DrawText`, `RegisterFont`) answer with a font of half a
+size a letter: the app draws its own text through `libnative_drawing`, and
+never asks.

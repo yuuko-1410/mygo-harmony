@@ -12,6 +12,9 @@ import preferences from '@ohos.data.preferences';
 import util from '@ohos.util';
 import picker from '@ohos.file.picker';
 import fs from '@ohos.file.fs';
+import hilog from '@ohos.hilog';
+import image from '@ohos.multimedia.image';
+import audio from '@ohos.multimedia.audio';
 import notificationManager from '@ohos.notificationManager';
 import { systemShare } from '@kit.ShareKit';
 import { uniformTypeDescriptor } from '@kit.ArkData';
@@ -23,7 +26,17 @@ import { BusinessError } from '@ohos.base';
 import { AppInfoReply, BatteryReply, CreateWindowCall, CreateWindowReply, Event, FirstFrameCall,
   LoadHTMLCall, LoadURLCall, MessageBoxCall, RequestFrameCall, ScreenReply, SetBackgroundCall, SetFrameRateCall, SetTextInputCall,
   ClipboardTextReply, EvalCall, GoBackCall, HapticCall, KeepAwakeCall, NetworkStatusReply,
-  CloseWindowCall, FocusCall, HideWindowCall, NotifyCall, OpenFilesCall, ShareCall, ShareFileCall, PlaceViewsCall, OpenURLReply, OpenURLCall, RemoveNotificationCall, SaveFileCall,
+  AccessibilityChangedCall, AddTabCall, AnnounceCall, AudioCloseReply, AudioOpenCall, AudioOpenReply,
+  AudioWriteCall, AudioWriteReply, CallAsyncCall, CapturePageCall, ClipboardImageReply, CloseTabsCall,
+  CreateTabsCall, DrawTextCall, DrawTextReply, LogCall, MeasureTextCall, MeasureTextReply,
+  MeasureTextRunCall, MeasureTextRunReply, PluginCallCall, PopWindowCall, PopupMenuCall,
+  PushWindowCall, RegisterFontCall, RegisterFontReply, SchemeDataCall, SchemeFailCall,
+  SchemeFinishCall, SchemeRespondCall, SelectTabCall, SetAppearanceCall, SetBackAvailableCall,
+  SetBarItemsCall, SetClipboardImageCall, SetCursorCall, SetOrientationsCall, SetStackCall,
+  SetStackReply, SetTabBadgeCall, SetUserAgentCall, SetUserScriptsCall, ShowMagnifierCall,
+  ShowMenuCall, ShowTabsCall, StackShownCall, TextAdvancesCall, TextAdvancesReply, TextMetricsCall,
+  TextMetricsReply, TimeZoneReply, UserAgentCall, UserAgentReply,
+  CloseWindowCall, FocusCall, HideMagnifierCall, HideMenuCall, HideWindowCall, NotifyCall, OpenFilesCall, ShareCall, ShareFileCall, PlaceViewsCall, OpenURLReply, OpenURLCall, RemoveNotificationCall, SaveFileCall,
   SecretDeleteCall, SecretDeleteReply, SecretGetCall, SecretGetReply, SecretSetCall, SecretSetReply,
   SetClipboardTextCall, SetSystemBarsCall, GoForwardCall, ReloadCall, SetTitleCall, SetZoomCall, ShowWindowCall,
   StopLoadingCall, ThemeReply, WireReader, dispatchCall } from './Wire';
@@ -929,6 +942,366 @@ export class Host extends HostStubs {
       default:
         return 'application/octet-stream';
     }
+  }
+
+
+  // ---- The rest of the protocol
+
+  // The system's own answers, where the platform has them.
+  private appearance: string = 'system';
+  private watching: boolean = false;
+  private clipImage: Uint8Array = new Uint8Array(0);
+  private userAgentValue: string = '';
+  private userScripts: string[] = [];
+  private cursor: string = '';
+  private focusNode: number = 0;
+  private backAvailable: boolean = false;
+  private renderer: audio.AudioRenderer | null = null;
+
+  timeZone(): TimeZoneReply {
+    const r = new TimeZoneReply();
+    r.id = new Intl.DateTimeFormat().resolvedOptions().timeZone;
+    return r;
+  }
+
+  // setAppearance is what the app asks of the window, which the theme this
+  // host reports follows: "dark", "light" or the system's.
+  setAppearance(c: SetAppearanceCall): void {
+    this.appearance = c.source;
+    if (c.source === 'dark') {
+      this.dark = true;
+    } else if (c.source === 'light') {
+      this.dark = false;
+    }
+  }
+
+  log(c: LogCall): void {
+    if (c.error) {
+      hilog.error(0xD002, 'Go', '%{public}s', c.line);
+    } else {
+      hilog.info(0xD002, 'Go', '%{public}s', c.line);
+    }
+  }
+
+  watchNetwork(): void {
+    if (this.watching) {
+      return;
+    }
+    this.watching = true;
+    try {
+      const watcher = connection.createNetConnection();
+      watcher.on('netAvailable', () => {
+        this.reportNetwork();
+      });
+      watcher.on('netLost', () => {
+        this.reportNetwork();
+      });
+      watcher.on('netCapabilitiesChange', () => {
+        this.reportNetwork();
+      });
+      watcher.register(() => {
+        this.reportNetwork();
+      });
+    } catch (e) {
+      console.error(`mygo: watch network: ${e}`);
+    }
+  }
+
+  private reportNetwork(): void {
+    const status = this.networkStatus();
+    this.send(Event.networkChanged(status.online, status.metered));
+  }
+
+  // The picture in the clipboard, kept as PNG: Go asks in the middle of a
+  // call, and the system's pasteboard is asynchronous.
+  clipboardImage(): ClipboardImageReply {
+    const r = new ClipboardImageReply();
+    r.png = this.clipImage;
+    return r;
+  }
+
+  setClipboardImage(c: SetClipboardImageCall): void {
+    this.clipImage = c.png;
+    if (c.png.length === 0) {
+      return;
+    }
+    try {
+      const source = image.createImageSource(c.png.buffer.slice(0) as ArrayBuffer);
+      source.createPixelMap().then((pm: image.PixelMap) => {
+        const data = pasteboard.createData(pasteboard.MIMETYPE_PIXELMAP, pm);
+        pasteboard.getSystemPasteboard().setData(data).catch((e: BusinessError) => {
+          console.error(`mygo: clipboard image: ${e.message}`);
+        });
+      }).catch((e: BusinessError) => {
+        console.error(`mygo: clipboard image: ${e.message}`);
+      });
+    } catch (e) {
+      console.error(`mygo: clipboard image: ${e}`);
+    }
+  }
+
+  setUserAgent(c: SetUserAgentCall): void {
+    this.userAgentValue = c.userAgent;
+  }
+
+  userAgent(c: UserAgentCall): UserAgentReply {
+    const r = new UserAgentReply();
+    r.userAgent = this.userAgentValue.length > 0 ? this.userAgentValue : 'mygo';
+    return r;
+  }
+
+  setUserScripts(c: SetUserScriptsCall): void {
+    this.userScripts = c.scripts;
+  }
+
+  // callAsync runs Go's body as an async function's, and answers what it
+  // returned.
+  callAsync(c: CallAsyncCall): void {
+    const w = this.webController;
+    if (w === null) {
+      this.send(Event.asyncResult(c.req, '', 'no page'));
+      return;
+    }
+    w.runJavaScript(c.body).then((result: string) => {
+      this.send(Event.asyncResult(c.req, result, ''));
+    }).catch((e: BusinessError) => {
+      this.send(Event.asyncResult(c.req, '', e.message));
+    });
+  }
+
+  // capturePage: the web engine's own snapshot is not reachable from the
+  // controller this host has, so the answer says so rather than hanging.
+  capturePage(c: CapturePageCall): void {
+    this.send(Event.captured(c.req, new Uint8Array(0), 'no snapshot from this host'));
+  }
+
+  // The app's schemes reach the web engine's requests, which the page
+  // intercepts; the answers Go gives go to that request.
+  schemeRespond(c: SchemeRespondCall): void {
+    this.schemeAnswer(c.req, c.status, c.header, new Uint8Array(0));
+  }
+
+  schemeData(c: SchemeDataCall): void {
+    this.schemeBody(c.req, c.data);
+  }
+
+  schemeFinish(c: SchemeFinishCall): void {
+  }
+
+  schemeFail(c: SchemeFailCall): void {
+    this.schemeAnswer(c.req, 404, [], new Uint8Array(0));
+  }
+
+  private schemeAnswer(req: number, status: number, header: string[], body: Uint8Array): void {
+    // The interception is synchronous for ArkUI's web engine: the host asks
+    // Go before the request, and this is where the answer lands.
+    this.schemeStatus.set(req, status);
+    if (body.length > 0) {
+      this.schemeBodies.set(req, body);
+    }
+  }
+
+  private schemeBody(req: number, data: Uint8Array): void {
+    const seen = this.schemeBodies.get(req);
+    if (seen === undefined) {
+      this.schemeBodies.set(req, data);
+      return;
+    }
+    const joined = new Uint8Array(seen.length + data.length);
+    joined.set(seen, 0);
+    joined.set(data, seen.length);
+    this.schemeBodies.set(req, joined);
+  }
+
+  private schemeStatus: Map<number, number> = new Map();
+  private schemeBodies: Map<number, Uint8Array> = new Map();
+
+  // The tabs, the stack and the bars of a phone are drawn by the host, and
+  // this host draws none: a surface is a layer above ArkUI's, so a bar of
+  // ArkUI's cannot be over it. Go draws its own, and these answer so that
+  // nothing waits.
+  createTabs(c: CreateTabsCall): void {
+  }
+
+  addTab(c: AddTabCall): void {
+  }
+
+  showTabs(c: ShowTabsCall): void {
+  }
+
+  selectTab(c: SelectTabCall): void {
+    this.send(Event.tabSelected(c.id, c.index));
+  }
+
+  setTabBadge(c: SetTabBadgeCall): void {
+  }
+
+  closeTabs(c: CloseTabsCall): void {
+  }
+
+  pushWindow(c: PushWindowCall): void {
+  }
+
+  popWindow(c: PopWindowCall): void {
+    this.send(Event.stackPopped(c.id, 0));
+  }
+
+  setStack(c: SetStackCall): SetStackReply {
+    const r = new SetStackReply();
+    return r;
+  }
+
+  stackShown(c: StackShownCall): void {
+  }
+
+  setBarItems(c: SetBarItemsCall): void {
+  }
+
+  popupMenu(c: PopupMenuCall): void {
+    // No menu of the system's can be over a surface: Go hears that none was
+    // chosen, at once, rather than waiting for a menu that never comes.
+    this.send(Event.menuPicked(c.req, 0));
+  }
+
+  pluginCall(c: PluginCallCall): void {
+    this.send(Event.pluginResult(c.req, '', 'no plugin host', 'unsupported'));
+  }
+
+  audioOpen(c: AudioOpenCall): AudioOpenReply {
+    const r = new AudioOpenReply();
+    try {
+      const options: audio.AudioRendererOptions = {
+        streamInfo: {
+          samplingRate: c.rate,
+          channels: audio.AudioChannel.CHANNEL_2,
+          sampleFormat: audio.AudioSampleFormat.SAMPLE_FORMAT_F32LE,
+          encodingType: audio.AudioEncodingType.ENCODING_TYPE_RAW,
+        },
+        rendererInfo: {
+          usage: audio.StreamUsage.STREAM_USAGE_MUSIC,
+          rendererFlags: 0,
+        },
+      };
+      audio.createAudioRenderer(options).then((renderer: audio.AudioRenderer) => {
+        this.renderer = renderer;
+        renderer.start();
+      }).catch((e: BusinessError) => {
+        console.error(`mygo: audio: ${e.message}`);
+      });
+    } catch (e) {
+      r.error = `${e}`;
+    }
+    return r;
+  }
+
+  audioWrite(c: AudioWriteCall): AudioWriteReply {
+    const r = new AudioWriteReply();
+    if (this.renderer === null) {
+      return r;  // not made yet: the samples are dropped, not waited for
+    }
+    this.renderer.write(c.samples.buffer.slice(0) as ArrayBuffer).catch((e: BusinessError) => {
+      console.error(`mygo: audio: ${e.message}`);
+    });
+    return r;
+  }
+
+  audioClose(): AudioCloseReply {
+    const r = new AudioCloseReply();
+    const renderer = this.renderer;
+    if (renderer !== null) {
+      this.renderer = null;
+      renderer.stop().then(() => {
+        renderer.release();
+      }).catch(() => {
+        renderer.release();
+      });
+    }
+    return r;
+  }
+
+  // The app draws its own text, with libnative_drawing: the host's text is
+  // a font of half a size a letter, which Go's own engine never asks for.
+  textMetrics(c: TextMetricsCall): TextMetricsReply {
+    const r = new TextMetricsReply();
+    r.ascent = c.size * 0.8;
+    r.descent = c.size * 0.2;
+    r.xHeight = c.size * 0.5;
+    r.underlinePosition = c.size * 0.1;
+    r.underlineThickness = 1;
+    r.strikePosition = c.size * 0.3;
+    return r;
+  }
+
+  measureText(c: MeasureTextCall): MeasureTextReply {
+    const r = new MeasureTextReply();
+    const widths: number[] = [];
+    for (const text of c.texts) {
+      widths.push(text.length * c.size * 0.5);
+    }
+    r.widths = widths;
+    return r;
+  }
+
+  textAdvances(c: TextAdvancesCall): TextAdvancesReply {
+    const r = new TextAdvancesReply();
+    const advances: number[] = [];
+    for (let i = 0; i < c.text.length; i++) {
+      advances.push(c.size * 0.5);
+    }
+    r.advances = advances;
+    return r;
+  }
+
+  measureTextRun(c: MeasureTextRunCall): MeasureTextRunReply {
+    const r = new MeasureTextRunReply();
+    r.width = Math.max(0, c.end - c.start) * c.size * 0.5;
+    return r;
+  }
+
+  drawText(c: DrawTextCall): DrawTextReply {
+    const r = new DrawTextReply();
+    r.left = 0;
+    r.top = 0;
+    r.width = 0;
+    r.height = 0;
+    r.color = false;
+    r.pixels = new Uint8Array(0);
+    return r;
+  }
+
+  registerFont(c: RegisterFontCall): RegisterFontReply {
+    const r = new RegisterFontReply();
+    return r;
+  }
+
+  // The system's overlays of a window, which a surface's window has none of
+  // here: kept, so that the app's state is not lost, and answered.
+  setCursor(c: SetCursorCall): void {
+    this.cursor = c.cursor;
+  }
+
+  accessibilityChanged(c: AccessibilityChangedCall): void {
+    this.focusNode = c.focus;
+  }
+
+  announce(c: AnnounceCall): void {
+    hilog.info(0xD002, 'Go', 'announce: %{public}s', c.text);
+  }
+
+  showMenu(c: ShowMenuCall): void {
+  }
+
+  hideMenu(c: HideMenuCall): void {
+  }
+
+  setBackAvailable(c: SetBackAvailableCall): void {
+    this.backAvailable = c.on;
+  }
+
+  showMagnifier(c: ShowMagnifierCall): void {
+  }
+
+  hideMagnifier(c: HideMagnifierCall): void {
   }
 
   // requestFrame notes that Go has something to draw: the display's next
