@@ -62,7 +62,7 @@ type surface struct {
 // made, and one made before the screen rotated draws the next frame at the
 // old size or rotation, which the system drops (#2219). The host holds the
 // window's draw back until the frame on the new one (FirstFrame).
-var renewsOnResize = runtime.GOOS == "android"
+var renewsOnResize = runtime.GOOS == "android" || openharmony
 
 func newSurface(w *window) *surface {
 	return &surface{w: w, refresh: 60, fingers: map[int][2]float64{}}

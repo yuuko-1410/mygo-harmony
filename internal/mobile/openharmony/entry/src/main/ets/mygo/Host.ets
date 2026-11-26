@@ -478,10 +478,13 @@ export class Host extends HostStubs {
     }
   }
 
-  // readClipboard asks the system for the clipboard, a few frames apart.
+  // readClipboard asks the system for the clipboard, a few frames apart,
+  // and only while a field could take it: the pasteboard refuses a reader
+  // without the permission it asks for, and a refused read is a talk with
+  // the system that comes to nothing.
   private readClipboard(): void {
     this.clipFrames++;
-    if (this.clipFrames % 20 !== 0) {
+    if (!this.inputActive || this.clipFrames % 20 !== 0) {
       return;
     }
     pasteboard.getSystemPasteboard().getData().then((data: pasteboard.PasteData) => {
@@ -1458,14 +1461,39 @@ export class Host extends HostStubs {
     }
   }
 
+  // The call a hang would be in: the heartbeat names it while it runs.
+  private inCall: boolean = false;
+  private callOp: number = -1;
+  private callAt: number = 0;
+
+  // heartbeat says which call has not come back, once a second.
+  heartbeat(): void {
+    if (!this.inCall) {
+      return;
+    }
+    const waited = Date.now() - this.callAt;
+    if (waited > 900) {
+      console.info(`mygo: stuck in call ${this.callOp} for ${waited}ms`);
+    }
+  }
+
   // call runs one call of Go, on the JS thread.
   call(buf: Uint8Array): Uint8Array | null {
+    const op = buf.length > 0 ? buf[0] : -1;
+    if (op !== 72) { // not the frame Go asks for at every refresh
+      console.info(`mygo: call ${op} of ${buf.length} bytes`);
+    }
+    this.inCall = true;
+    this.callOp = op;
+    this.callAt = Date.now();
     try {
       return dispatchCall(this, buf);
     } catch (e) {
       // A call the host answers badly must not take the app with it.
       console.error(`mygo: a call failed: ${e}`);
       return null;
+    } finally {
+      this.inCall = false;
     }
   }
 }

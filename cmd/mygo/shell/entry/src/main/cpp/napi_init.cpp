@@ -10,6 +10,8 @@
 #include <hilog/log.h>
 #include <napi/native_api.h>
 
+#include <unistd.h>
+
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -38,6 +40,8 @@ napi_ref g_dispatch = nullptr;   // (Uint8Array) => Uint8Array | null
 napi_ref g_surface = nullptr;    // (handle, width, height, scale) => void
 napi_ref g_touch = nullptr;      // (phase, x, y) => void
 napi_threadsafe_function g_post = nullptr;
+// The JS thread: the only one a call of Go's may reach the host on.
+pid_t g_jsThread = 0;
 OH_NativeXComponent *g_component = nullptr;
 // The window ArkUI made, which may come before start sets a listener.
 uint64_t g_handle = 0;
@@ -243,6 +247,7 @@ napi_value start(napi_env env, napi_callback_info info) {
         return nullptr;
     }
     g_env = env;
+    g_jsThread = static_cast<pid_t>(gettid());
     napi_create_reference(env, argv[0], 1, &g_dispatch);
     napi_create_reference(env, argv[1], 1, &g_surface);
     napi_create_reference(env, argv[3], 1, &g_touch);
@@ -286,6 +291,15 @@ napi_value Init(napi_env env, napi_value exports) {
 extern "C" void mygo_ohos_call(uint8_t *msg, size_t len, uint8_t **reply, size_t *replyLen) {
     *reply = nullptr;
     *replyLen = 0;
+    {
+        static int foreign = 0;
+        pid_t tid = static_cast<pid_t>(gettid());
+        if (tid != g_jsThread && foreign < 40) {
+            foreign++;
+            LOGI("MYGO call %{public}d of %{public}d bytes from thread %{public}d (js %{public}d)", len > 0 ? msg[0] : -1,
+                 static_cast<int>(len), static_cast<int>(tid), static_cast<int>(g_jsThread));
+        }
+    }
     if (g_env == nullptr || g_dispatch == nullptr) {
         return;
     }

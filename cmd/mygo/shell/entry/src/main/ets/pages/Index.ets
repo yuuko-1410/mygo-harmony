@@ -28,10 +28,6 @@ struct Index {
   @State inputHeight: number = 0;
   @State inputText: string = '';
   private drawnAt: number = 0;
-  // The window's own size in its units, which its pixels are measured
-  // against: the display's density is not the window's on a 2in1.
-  private rootWidth: number = 0;
-  private rootHeight: number = 0;
 
   aboutToAppear(): void {
     host.send = (buf: Uint8Array): void => {
@@ -71,6 +67,10 @@ struct Index {
       }
     });
     this.sync.start();
+    // A heartbeat: a hang leaves the last call it was in, in the log.
+    setInterval(() => {
+      host.heartbeat();
+    }, 1000);
     window.getLastWindow(this.getUIContext().getHostContext()).then((w: window.Window) => {
       host.sysWindow = w;
       this.measure(w);
@@ -97,14 +97,16 @@ struct Index {
       const left = Math.max(bars.leftRect.width, cutout.leftRect.width);
       const right = Math.max(bars.rightRect.width, cutout.rightRect.width);
       const bottom = Math.max(bars.bottomRect.height, keyboard.bottomRect.height);
-      console.info(`mygo: window ${rect.width}x${rect.height}, ` +
-        `bars ${top},${left},${bottom},${right}, keyboard ${keyboard.bottomRect.height}`);
-      if (this.rootWidth > 0) {
-        // The window's pixels over the page's units: what a finger's place
-        // and the surface's size are measured in. The display's density is
-        // another number on a window that is not the screen.
-        host.scale = rect.width / this.rootWidth;
-      }
+      // The window's pixels over its units, both from the window itself,
+      // which ArkUI converts: a maximized window and a restored one are
+      // measured the same way, where the page's own area, arriving in a
+      // callback of its own, is a size behind.
+      const ui = this.getUIContext();
+      const width = ui.px2vp(rect.width);
+      host.scale = width > 0 ? rect.width / width : host.scale;
+      console.info(`mygo: window ${rect.width}x${rect.height} px, scale ${host.scale}`);
+      // Pixels: the host turns them into the units Go lays out in, by the
+      // scale, which is the window's own and not the display's.
       host.sizeChanged(rect.width, rect.height,
         [top, left, bottom, right, keyboard.bottomRect.height]);
     } catch (e) {
@@ -212,9 +214,5 @@ struct Index {
     .width('100%')
     .height('100%')
     .backgroundColor(this.windowColor)
-    .onAreaChange((_old: Area, area: Area) => {
-      this.rootWidth = area.width as number;
-      this.rootHeight = area.height as number;
-    })
   }
 }
