@@ -22,6 +22,7 @@ import { uniformTypeDescriptor } from '@kit.ArkData';
 import fileUri from '@ohos.file.fileuri';
 import common from '@ohos.app.ability.common';
 import window from '@ohos.window';
+import display from '@ohos.display';
 import { PromptAction } from '@ohos.arkui.UIContext';
 import { BusinessError } from '@ohos.base';
 import { AppInfoReply, BatteryReply, CreateWindowCall, CreateWindowReply, Event, FirstFrameCall,
@@ -156,11 +157,41 @@ export class Host extends HostStubs {
       this.windowSize();
     }
     const sub = this.subs.get(c.id);
-    if (sub !== undefined) {
-      sub.showWindow().catch((e: BusinessError) => {
-        console.error(`mygo: show ${c.id}: ${e.message}`);
-      });
+    if (sub === undefined) {
+      return;
     }
+    sub.showWindow().then(() => {
+      this.decorate(c.id, sub);
+    }).catch((e: BusinessError) => {
+      console.error(`mygo: show ${c.id}: ${e.message}`);
+    });
+  }
+
+  // The windows whose decor is set, which is once they show: before that
+  // their state is not one the system sets it in (1300002), and the call
+  // throws and takes the app with it.
+  private decorated: Set<number> = new Set();
+
+  private decorate(id: number, sub: window.Window): void {
+    if (this.decorated.has(id)) {
+      return;
+    }
+    this.decorated.add(id);
+    const step = (fn: () => void): void => {
+      try {
+        fn();
+      } catch (e) {
+        console.info(`mygo: window ${id}: ${e}`);
+      }
+    };
+    step(() => { sub.setSubWindowModal(false); });
+    step(() => { sub.setWindowDecorVisible(true); });
+    step(() => { sub.setWindowTitle(`mygo ${id}`); });
+    step(() => { sub.setWindowTitleMoveEnabled(true); });
+    step(() => { sub.setWindowFocusable(true); });
+    step(() => {
+      sub.setWindowLimits({ maxWidth: 10000, maxHeight: 10000, minWidth: 120, minHeight: 80 });
+    });
   }
 
   // hideWindow and closeWindow are a child window's page going away, and the
@@ -877,29 +908,21 @@ export class Host extends HostStubs {
         this.pendingPlaces.delete(id);
         sub.moveWindowTo(place[0], place[1]).catch(() => {});
         sub.resize(place[2], place[3]).catch(() => {});
+      } else {
+        // A sub-window comes out the size of the screen, over everything: a
+        // window of the app's takes a part of it, in the middle, as a
+        // window of a desktop app does.
+        const d = display.getDefaultDisplaySync();
+        const w = Math.max(320, Math.floor(d.width * 0.55));
+        const h = Math.max(240, Math.floor(d.height * 0.7));
+        sub.resize(w, h).catch(() => {});
+        sub.moveWindowTo(Math.floor((d.width - w) / 2), Math.floor((d.height - h) / 2)).catch(() => {});
       }
       const page = this.surfaceWindows.has(id) ? 'pages/Window' : 'pages/Embedded';
+      // Loaded, not shown: Go shows the windows it shows (ShowWindow), and
+      // one made behind another draws nothing until it does.
       return sub.loadContent(page, this.local(id)).then(() => {
-        return sub.showWindow();
-      }).then(() => {
-        // A window's decor, its dragging and its focus are set once it
-        // shows: before, its state is not one the system sets them in
-        // (1300002), and the call throws.
-        const step = (fn: () => void): void => {
-          try {
-            fn();
-          } catch (e) {
-            console.info(`mygo: window ${id}: ${e}`);
-          }
-        };
-        step(() => { sub.setSubWindowModal(false); });
-        step(() => { sub.setWindowDecorVisible(true); });
-        step(() => { sub.setWindowTitle(`mygo ${id}`); });
-        step(() => { sub.setWindowTitleMoveEnabled(true); });
-        step(() => { sub.setWindowFocusable(true); });
-        step(() => {
-          sub.setWindowLimits({ maxWidth: 10000, maxHeight: 10000, minWidth: 120, minHeight: 80 });
-        });
+        this.decorated.delete(id);
       });
     }).catch((e: BusinessError) => {
       this.creating.delete(id);
