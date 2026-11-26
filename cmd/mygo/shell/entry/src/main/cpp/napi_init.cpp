@@ -17,7 +17,9 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <map>
 #include <mutex>
+#include <string>
 #include <vector>
 
 #define LOG_DOMAIN 0xD002  // hilog takes 0x0 to 0xFFFFF: a bigger one logs nothing
@@ -46,13 +48,49 @@ napi_ref g_touch = nullptr;      // (phase, x, y) => void
 napi_threadsafe_function g_post = nullptr;
 napi_threadsafe_function g_calls = nullptr;  // calls of Go's for the JS thread
 
+// A window of the app's draws with a component of its own: the surface ArkUI
+// made for it, which Go draws into.
+struct windowComponent {
+    OH_NativeXComponent *component = nullptr;
+    uint64_t handle = 0;
+};
+
+// g_windows is the components, by the window they draw for; g_unbound those
+// the module was loaded with, before the page said which window it is.
+std::map<int, windowComponent> g_windows;
+std::vector<OH_NativeXComponent *> g_unbound;
+// The surface a component was given before the page said which window it
+// draws for.
+std::map<OH_NativeXComponent *, uint64_t> g_early;
+
+// componentName is the name the page gave the component.
+std::string componentName(OH_NativeXComponent *component) {
+    char name[64] = {0};
+    uint64_t size = sizeof(name);
+    if (OH_NativeXComponent_GetXComponentId(component, name, &size) != 0) {
+        return "";
+    }
+    return std::string(name);
+}
+
+// windowOf is the window a component draws for, or 0.
+int windowOf(OH_NativeXComponent *component) {
+    for (const auto &w : g_windows) {
+        if (w.second.component == component) {
+            return w.first;
+        }
+    }
+    return 0;
+}
+
+// componentOf is the component a window draws with, or nullptr.
+OH_NativeXComponent *componentOf(int id) {
+    auto it = g_windows.find(id);
+    return it == g_windows.end() ? nullptr : it->second.component;
+}
+
 // The JS thread: the only one a call of Go's may reach the host on.
 pid_t g_jsThread = 0;
-OH_NativeXComponent *g_component = nullptr;
-// The window ArkUI made, which may come before start sets a listener.
-uint64_t g_handle = 0;
-double g_width = 0;
-double g_height = 0;
 
 // postJS runs on the JS thread: ArkTS drains the calls Go made.
 void postJS(napi_env env, napi_value cb, void *, void *) {
@@ -66,10 +104,7 @@ void postJS(napi_env env, napi_value cb, void *, void *) {
 }
 
 // callSurface reports the window ArkUI made, or 0 when it is gone.
-void callSurface(uint64_t handle, double width, double height, double scale) {
-    g_handle = handle;
-    g_width = width;
-    g_height = height;
+void callSurface(int id, uint64_t handle, double width, double height, double scale) {
     if (g_env == nullptr || g_surface == nullptr) {
         return;
     }
@@ -80,15 +115,16 @@ void callSurface(uint64_t handle, double width, double height, double scale) {
     napi_value cb = nullptr;
     napi_value global = nullptr;
     napi_value result = nullptr;
-    napi_value argv[4] = {nullptr, nullptr, nullptr, nullptr};
+    napi_value argv[5] = {nullptr, nullptr, nullptr, nullptr, nullptr};
     double args[4] = {static_cast<double>(handle), width, height, scale};
     napi_get_reference_value(g_env, g_surface, &cb);
     napi_get_global(g_env, &global);
+    napi_create_int32(g_env, id, &argv[0]);
     for (int i = 0; i < 4; i++) {
-        napi_create_double(g_env, args[i], &argv[i]);
+        napi_create_double(g_env, args[i], &argv[i + 1]);
     }
     if (cb != nullptr) {
-        napi_status st = napi_call_function(g_env, global, cb, 4, argv, &result);
+        napi_status st = napi_call_function(g_env, global, cb, 5, argv, &result);
         if (st != napi_ok) {
             LOGE("MYGO the host did not take the surface: %{public}d", static_cast<int>(st));
         }
@@ -96,30 +132,34 @@ void callSurface(uint64_t handle, double width, double height, double scale) {
     napi_close_handle_scope(g_env, scope);
 }
 
-void OnSurfaceCreated(OH_NativeXComponent *, void *window) {
+void OnSurfaceCreated(OH_NativeXComponent *component, void *window) {
     uint64_t width = 0;
     uint64_t height = 0;
-    OH_NativeXComponent_GetXComponentSize(g_component, window, &width, &height);
-    LOGI("MYGO surface %{public}lx %{public}lux%{public}lu", (unsigned long)window, (unsigned long)width,
-         (unsigned long)height);
-    callSurface(reinterpret_cast<uint64_t>(window), static_cast<double>(width), static_cast<double>(height), 1);
+    OH_NativeXComponent_GetXComponentSize(component, window, &width, &height);
+    const int id = windowOf(component);
+    g_windows[id].handle = reinterpret_cast<uint64_t>(window);
+    g_early[component] = reinterpret_cast<uint64_t>(window);
+    LOGI("MYGO surface of %{public}d %{public}lx %{public}lux%{public}lu", id, (unsigned long)window,
+         (unsigned long)width, (unsigned long)height);
+    callSurface(id, reinterpret_cast<uint64_t>(window), static_cast<double>(width), static_cast<double>(height), 1);
 }
 
 // The size is asked for, not given: the callback has only the window.
-void OnSurfaceChanged(OH_NativeXComponent *, void *window) {
+void OnSurfaceChanged(OH_NativeXComponent *component, void *window) {
     uint64_t width = 0;
     uint64_t height = 0;
-    OH_NativeXComponent_GetXComponentSize(g_component, window, &width, &height);
-    LOGI("MYGO surface changed %{public}lx %{public}lux%{public}lu", (unsigned long)window, (unsigned long)width,
-         (unsigned long)height);
-    callSurface(reinterpret_cast<uint64_t>(window), static_cast<double>(width), static_cast<double>(height), 1);
+    OH_NativeXComponent_GetXComponentSize(component, window, &width, &height);
+    const int id = windowOf(component);
+    g_windows[id].handle = reinterpret_cast<uint64_t>(window);
+    LOGI("MYGO surface of %{public}d changed %{public}lux%{public}lu", id, (unsigned long)width, (unsigned long)height);
+    callSurface(id, reinterpret_cast<uint64_t>(window), static_cast<double>(width), static_cast<double>(height), 1);
 }
 
 // DispatchTouchEvent is where a surface's fingers come: ArkUI's own
 // onTouch does not see them, as the surface is the app's.
-void DispatchTouchEvent(OH_NativeXComponent *, void *window) {
+void DispatchTouchEvent(OH_NativeXComponent *component, void *window) {
     OH_NativeXComponent_TouchEvent te;
-    if (OH_NativeXComponent_GetTouchEvent(g_component, window, &te) != 0) {
+    if (OH_NativeXComponent_GetTouchEvent(component, window, &te) != 0) {
         return;
     }
     const char *phase = nullptr;
@@ -154,21 +194,24 @@ void DispatchTouchEvent(OH_NativeXComponent *, void *window) {
     napi_value cb = nullptr;
     napi_value global = nullptr;
     napi_value result = nullptr;
-    napi_value argv[3] = {nullptr, nullptr, nullptr};
-    napi_create_string_utf8(g_env, phase, NAPI_AUTO_LENGTH, &argv[0]);
-    napi_create_double(g_env, p.x, &argv[1]);
-    napi_create_double(g_env, p.y, &argv[2]);
+    napi_value argv[4] = {nullptr, nullptr, nullptr, nullptr};
+    napi_create_int32(g_env, windowOf(component), &argv[0]);
+    napi_create_string_utf8(g_env, phase, NAPI_AUTO_LENGTH, &argv[1]);
+    napi_create_double(g_env, p.x, &argv[2]);
+    napi_create_double(g_env, p.y, &argv[3]);
     napi_get_reference_value(g_env, g_touch, &cb);
     napi_get_global(g_env, &global);
     if (cb != nullptr) {
-        napi_call_function(g_env, global, cb, 3, argv, &result);
+        napi_call_function(g_env, global, cb, 4, argv, &result);
     }
     napi_close_handle_scope(g_env, scope);
 }
 
-void OnSurfaceDestroyed(OH_NativeXComponent *, void *) {
-    LOGI("MYGO surface gone");
-    callSurface(0, 0, 0, 1);
+void OnSurfaceDestroyed(OH_NativeXComponent *component, void *) {
+    const int id = windowOf(component);
+    LOGI("MYGO surface of %{public}d gone", id);
+    g_windows[id].handle = 0;
+    callSurface(id, 0, 0, 0, 1);
 }
 
 OH_NativeXComponent_Callback g_callbacks = {
@@ -310,6 +353,64 @@ void callOnJS(napi_env, napi_value, void *, void *data) {
     c->cv.notify_all();
 }
 
+// mygoComponentId is the XComponent the window draws with: the main one is
+// 'mygo', and the others are named after their window.
+std::string componentIdOf(int id) { return id <= 0 ? "mygo" : "mygo-" + std::to_string(id); }
+
+// bind has the component the module was loaded with draw for window id: a
+// window of the app's has a component of its own, and ArkUI loads the module
+// once for each.
+napi_value bind(napi_env env, napi_callback_info info) {
+    size_t argc = 1;
+    napi_value argv[1] = {nullptr};
+    if (napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr) != napi_ok || argc < 1) {
+        return nullptr;
+    }
+    int32_t id = 0;
+    napi_get_value_int32(env, argv[0], &id);
+    if (g_unbound.empty()) {
+        LOGE("MYGO bind %{public}d: no component", static_cast<int>(id));
+        return nullptr;
+    }
+    const std::string want = componentIdOf(id);
+    OH_NativeXComponent *found = nullptr;
+    for (auto it = g_unbound.begin(); it != g_unbound.end(); ++it) {
+        if (want == componentName(*it)) {
+            found = *it;
+            g_unbound.erase(it);
+            break;
+        }
+    }
+    if (found == nullptr) {
+        // ArkUI may name it apart from us: the one left is the page's.
+        found = g_unbound.back();
+        g_unbound.pop_back();
+        LOGI("MYGO bind %{public}d to %{public}s", static_cast<int>(id), componentName(found).c_str());
+    }
+    // A component draws for one window only.
+    for (auto it = g_windows.begin(); it != g_windows.end();) {
+        if (it->second.component == found && it->first != id) {
+            it = g_windows.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    g_windows[id].component = found;
+    auto early = g_early.find(found);
+    if (early != g_early.end()) {
+        g_windows[id].handle = early->second;
+        g_early.erase(early);
+    }
+    LOGI("MYGO window %{public}d bound", static_cast<int>(id));
+    if (g_windows[id].handle != 0) {
+        uint64_t w = 0;
+        uint64_t h = 0;
+        OH_NativeXComponent_GetXComponentSize(found, reinterpret_cast<void *>(g_windows[id].handle), &w, &h);
+        callSurface(id, g_windows[id].handle, static_cast<double>(w), static_cast<double>(h), 1);
+    }
+    return nullptr;
+}
+
 // start begins Go. dispatch runs one call on the JS thread, onSurface
 // reports the window, and onDrain asks ArkTS to drain Go's calls.
 napi_value start(napi_env env, napi_callback_info info) {
@@ -343,26 +444,30 @@ napi_value start(napi_env env, napi_callback_info info) {
                                         &g_calls) != napi_ok) {
         LOGE("MYGO no threadsafe function for calls");
     }
-    if (g_handle != 0) {
-        callSurface(g_handle, g_width, g_height, 1);
-    }
     mygo_start_ohos();
     return nullptr;
 }
 
 napi_value Init(napi_env env, napi_value exports) {
-    // ArkUI hands the XComponent to the module that made it, by name.
+    // ArkUI hands the XComponent to the module that made it, by name: the
+    // page says which window it draws for (bind), as a window of the app's
+    // has a component of its own.
     napi_value xcomponent = nullptr;
     napi_valuetype t = napi_undefined;
     if (napi_get_named_property(env, exports, OH_NATIVE_XCOMPONENT_OBJ, &xcomponent) == napi_ok) {
         napi_typeof(env, xcomponent, &t);
-        if (t == napi_object && napi_unwrap(env, xcomponent, reinterpret_cast<void **>(&g_component)) == napi_ok &&
-            g_component != nullptr) {
-            OH_NativeXComponent_RegisterCallback(g_component, &g_callbacks);
-            LOGI("MYGO xcomponent registered");
+        OH_NativeXComponent *component = nullptr;
+        if (t == napi_object && napi_unwrap(env, xcomponent, reinterpret_cast<void **>(&component)) == napi_ok &&
+            component != nullptr) {
+            g_unbound.push_back(component);
+            // Registered before the page says which window it draws for: a
+            // surface made before that still comes to these callbacks.
+            OH_NativeXComponent_RegisterCallback(component, &g_callbacks);
+            LOGI("MYGO component %{public}s", componentName(component).c_str());
         }
     }
     napi_property_descriptor desc[] = {
+        {"bind", nullptr, bind, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"start", nullptr, start, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"event", nullptr, event, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"drain", nullptr, drain, nullptr, nullptr, nullptr, napi_default, nullptr},

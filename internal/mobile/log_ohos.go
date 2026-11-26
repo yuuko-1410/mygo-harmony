@@ -33,5 +33,15 @@ func dupOutput(w, old *os.File) error {
 	return syscall.Dup3(int(w.Fd()), int(old.Fd()), 0)
 }
 
-// keepCrashOutput has the runtime report a crash with the goroutine's stack.
-func keepCrashOutput() { debug.SetTraceback("single") }
+// keepCrashOutput has the runtime report a crash, all of it, before the app
+// goes: the report of a panic that ends an app would otherwise be written to
+// the pipe redirectOutput makes, which nothing reads once the runtime exits.
+// The descriptor the system gave the app takes it whole, as it exits.
+func keepCrashOutput() {
+	debug.SetTraceback("all")
+	if fd, err := syscall.Dup(2); err == nil {
+		f := os.NewFile(uintptr(fd), "stderr")
+		debug.SetCrashOutput(f, debug.CrashOptions{})
+		f.Close()
+	}
+}

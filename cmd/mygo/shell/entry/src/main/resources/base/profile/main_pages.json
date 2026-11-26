@@ -1,6 +1,7 @@
 {
   "src": [
     "pages/Index",
-    "pages/Embedded"
+    "pages/Embedded",
+    "pages/Window"
   ]
 }

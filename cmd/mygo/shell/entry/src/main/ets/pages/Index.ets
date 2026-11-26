@@ -148,15 +148,22 @@ struct Index {
             started = true;
             native.start(
               (buf: Uint8Array): Uint8Array | null => host.call(buf),
-              (handle: number, width: number, height: number, scale: number): void => {
-                host.surface(handle, width, height, scale === 1 ? host.scale : scale);
+              (id: number, handle: number, width: number, height: number, scale: number): void => {
+                host.surface(id, handle, width, height, scale === 1 ? host.scale : scale);
               },
               (): void => {
                 native.drain();
               },
-              (phase: string, x: number, y: number): void => {
-                host.touchPixels(phase, x, y);
+              (id: number, phase: string, x: number, y: number): void => {
+                host.touchPixels(id, phase, x, y);
               });
+            // The app's own window draws with this component: Go makes it
+            // first, and the window it makes is the one this page shows.
+            setTimeout(() => {
+              if (host.mainWindowId !== 0) {
+                native.bind(host.mainWindowId);
+              }
+            }, 100);
             // Not Event.ready: the backend posts that itself (postReady), and
             // a second one closes a channel twice.
             native.event(Event.active(true));

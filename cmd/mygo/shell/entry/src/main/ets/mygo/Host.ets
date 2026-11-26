@@ -107,7 +107,7 @@ export class Host extends HostStubs {
   ask: (buf: Uint8Array) => Uint8Array | null = (buf: Uint8Array): Uint8Array | null => null;
   // mainWindow is the window Go made first: the app's own, as Android's is
   // the Activity's.
-  private mainWindowId: number = 0;
+  mainWindowId: number = 0;
   private wanted: boolean = false;
   // The surface, which may come before the window Go asks for.
   private handle: number = 0;
@@ -124,6 +124,10 @@ export class Host extends HostStubs {
     this.windowId = c.id;
     if (this.mainWindowId === 0) {
       this.mainWindowId = c.id;
+    } else if (c.surface) {
+      // A window of the app's, drawing with a component of its own.
+      this.surfaceWindows.add(c.id);
+      this.makeSub(c.id);
     }
     const r = new CreateWindowReply();
     r.error = '';
@@ -131,7 +135,7 @@ export class Host extends HostStubs {
     // The first window draws on the surface until Go shows another: a
     // window made behind the one that shows draws nothing, and taking the
     // surface for it leaves the one that shows with none.
-    if (this.handle !== 0 && this.surfaceWindow === 0) {
+    if (this.handle !== 0 && c.id === this.mainWindowId) {
       this.windowSize();
     }
     return r;
@@ -164,9 +168,7 @@ export class Host extends HostStubs {
   }
 
   closeWindow(c: CloseWindowCall): void {
-    if (this.surfaceWindow === c.id) {
-      this.surfaceWindow = 0;
-    }
+    this.surfaceWindows.delete(c.id);
     const sub = this.subs.get(c.id);
     if (sub === undefined) {
       return;
@@ -863,26 +865,34 @@ export class Host extends HostStubs {
     stage.createSubWindow(`mygo-${id}`).then((sub: window.Window) => {
       this.subs.set(id, sub);
       this.creating.delete(id);
-      // A child window's bar is off by default: no title, no drag, no close
-      // button, and the system will not give it the focus.
-      sub.setWindowDecorVisible(true);
-      sub.setWindowTitle(`mygo ${id}`);
-      sub.setWindowTitleMoveEnabled(true);
-      sub.setWindowFocusable(true);
-      sub.setWindowDecorHeight(40);
-      sub.setWindowLimits({ maxWidth: 10000, maxHeight: 10000, minWidth: 120, minHeight: 80 });
       const place = this.pendingPlaces.get(id);
       if (place !== undefined) {
         this.pendingPlaces.delete(id);
         sub.moveWindowTo(place[0], place[1]).catch(() => {});
         sub.resize(place[2], place[3]).catch(() => {});
       }
-      sub.loadContent('pages/Embedded', this.local(id)).then(() => {
-        sub.showWindow().catch((e: BusinessError) => {
-          console.error(`mygo: show ${id}: ${e.message}`);
+      const page = this.surfaceWindows.has(id) ? 'pages/Window' : 'pages/Embedded';
+      return sub.loadContent(page, this.local(id)).then(() => {
+        return sub.showWindow();
+      }).then(() => {
+        // A window's decor, its dragging and its focus are set once it
+        // shows: before, its state is not one the system sets them in
+        // (1300002), and the call throws.
+        const step = (fn: () => void): void => {
+          try {
+            fn();
+          } catch (e) {
+            console.info(`mygo: window ${id}: ${e}`);
+          }
+        };
+        step(() => { sub.setSubWindowModal(false); });
+        step(() => { sub.setWindowDecorVisible(true); });
+        step(() => { sub.setWindowTitle(`mygo ${id}`); });
+        step(() => { sub.setWindowTitleMoveEnabled(true); });
+        step(() => { sub.setWindowFocusable(true); });
+        step(() => {
+          sub.setWindowLimits({ maxWidth: 10000, maxHeight: 10000, minWidth: 120, minHeight: 80 });
         });
-      }).catch((e: BusinessError) => {
-        console.error(`mygo: content ${id}: ${e.message}`);
       });
     }).catch((e: BusinessError) => {
       this.creating.delete(id);
@@ -1441,14 +1451,43 @@ export class Host extends HostStubs {
   }
 
   // surface tells Go where to draw: the window ArkUI made, in pixels.
-  surface(handle: number, width: number, height: number, scale: number): void {
-    this.scale = scale;
-    this.handle = handle;
-    this.width = width;
-    this.height = height;
-    if (this.windowId !== 0) {
+  // surface is a window's own native window, which ArkUI made for the
+  // component that draws it: each window of the app's has one.
+  surface(id: number, handle: number, width: number, height: number, scale: number): void {
+    if (id === 0) {
+      // Not yet bound to a window: the page binds it as Go makes one.
+      this.scale = scale;
+      this.handle = handle;
+      this.width = width;
+      this.height = height;
+      return;
+    }
+    if (this.surfaceOf.get(id) !== handle) {
+      this.surfaceOf.set(id, handle);
+    }
+    if (this.scaleOf.get(id) !== scale) {
+      this.scaleOf.set(id, scale);
+    }
+    this.sizeOf.set(id, [width, height]);
+    if (id === this.windowId) {
+      this.scale = scale;
+      this.handle = handle;
+      this.width = width;
+      this.height = height;
       this.windowSize();
     }
+  }
+
+  // The surface each window draws into, its size and the pixels one of its
+  // units is, which a finger's place is measured by.
+  surfaceOf: Map<number, number> = new Map();
+  scaleOf: Map<number, number> = new Map();
+  sizeOf: Map<number, [number, number]> = new Map();
+  // The windows of the app's that draw with a surface of their own.
+  private surfaceWindows: Set<number> = new Set();
+
+  private isSurfaceWindow(id: number): boolean {
+    return this.surfaceWindows.has(id);
   }
 
   // windowSize tells Go the window's size in DIPs, its scale and its
@@ -1472,25 +1511,14 @@ export class Host extends HostStubs {
     }
   }
 
-  // surfaceWindow is the window that draws into the one native window the
-  // XComponent has: EGL makes a surface a window at a time, and a second
-  // window's attempt on the same one is EGL_BAD_ALLOC — a window that draws
-  // nothing, which is what a settings page opened over the app looked like.
-  private surfaceWindow: number = 0;
-
   private windowSize(): void {
-    if (this.windowId === 0 || this.handle === 0) {
+    const id = this.windowId;
+    if (id === 0 || this.handle === 0) {
       return;
     }
     const scale = this.scale > 0 ? this.scale : 1;
-    if (this.surfaceWindow !== 0 && this.surfaceWindow !== this.windowId) {
-      // The window that had it lets go before the next one holds it.
-      this.send(Event.surfaceChanged(this.surfaceWindow, 0, 0, 0, scale, 60));
-      this.surfaceWindow = 0;
-    }
-    this.surfaceWindow = this.windowId;
-    this.send(Event.surfaceChanged(this.windowId, this.handle, this.width, this.height, scale, 60));
-    this.send(Event.resized(this.windowId, this.width / scale, this.height / scale, scale,
+    this.send(Event.surfaceChanged(id, this.handle, this.width, this.height, scale, 60));
+    this.send(Event.resized(id, this.width / scale, this.height / scale, scale,
       this.insetTop / scale, this.insetLeft / scale, this.insetBottom / scale, this.insetRight / scale,
       this.keyboard / scale));
   }
@@ -1515,16 +1543,17 @@ export class Host extends HostStubs {
 
   // touchPixels is a finger of the surface, in its pixels: Go lays out in
   // DIPs.
-  touchPixels(phase: string, x: number, y: number): void {
-    const scale = this.scale > 0 ? this.scale : 1;
-    this.touch(x / scale, y / scale, phase);
+  touchPixels(id: number, phase: string, x: number, y: number): void {
+    const scale = this.scaleOf.get(id) ?? this.scale;
+    const s = scale > 0 ? scale : 1;
+    this.touch(id, x / s, y / s, phase);
   }
 
-  touch(x: number, y: number, phase: string): void {
-    if (this.windowId !== 0) {
+  touch(id: number, x: number, y: number, phase: string): void {
+    if (id !== 0) {
       // Seconds, as Go measures a tap's double and a finger's speed.
       const now = Date.now() / 1000;
-      this.send(Event.touch(this.windowId, 0, phase, 'touch', x, y, 1, 0, now));
+      this.send(Event.touch(id, 0, phase, 'touch', x, y, 1, 0, now));
     }
   }
 
@@ -1546,6 +1575,15 @@ export class Host extends HostStubs {
   // wheel is ArkUI's axes, in the window's own units.
   wheel(x: number, y: number, dx: number, dy: number): void {
     this.scrollAt(x, y, dx, dy);
+  }
+
+  // wheelAt is a wheel over a window of the app's, which is not the one in
+  // front of the others.
+  wheelAt(id: number, x: number, y: number, dx: number, dy: number): void {
+    if (id === 0) {
+      return;
+    }
+    this.send(Event.scroll(id, x, y, dx, dy, false, 'changed'));
   }
 
   // tick runs at the display's refreshes: a frame Go asked for, or none.
