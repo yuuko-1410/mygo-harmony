@@ -621,6 +621,11 @@ func (s *devSession) launchOhos(dc *Config, hap string, env []string) (*exec.Cmd
 		return nil, nil, err
 	}
 	serial := s.device.id
+	// An app running while its HAP is replaced keeps the window it had:
+	// the files under it change, the surface it draws into is left with
+	// none, and the window shows nothing or the app goes as it starts. It
+	// stops first, and its window goes with it.
+	exec.Command(hdc, "-t", serial, "shell", "aa", "force-stop", dc.Identifier).Run()
 	if out, err := exec.Command(hdc, "-t", serial, "install", "-r", hap).CombinedOutput(); err != nil {
 		return nil, nil, fmt.Errorf("hdc install: %v\n%s", err, strings.TrimSpace(string(out)))
 	}
