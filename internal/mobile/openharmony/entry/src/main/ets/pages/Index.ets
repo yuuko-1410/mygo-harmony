@@ -3,6 +3,7 @@ import displaySync from '@ohos.graphics.displaySync';
 import display from '@ohos.display';
 import window from '@ohos.window';
 import webview from '@ohos.web.webview';
+import util from '@ohos.util';
 import { shared as host } from '../mygo/Shared';
 import { Event } from '../mygo/Wire';
 
@@ -32,6 +33,13 @@ struct Index {
   aboutToAppear(): void {
     host.send = (buf: Uint8Array): void => {
       native.event(buf);
+    };
+    host.sendWaiting = (buf: Uint8Array): Uint8Array | null => {
+      const reply = native.event(buf) as ArrayBuffer | undefined;
+      if (reply === undefined) {
+        return null;
+      }
+      return new Uint8Array(reply);
     };
     const d = display.getDefaultDisplaySync();
     host.scale = d.densityPixels;
@@ -80,6 +88,36 @@ struct Index {
     }).catch((e: Error) => {
       console.error(`mygo: no window to measure: ${e.message}`);
     });
+  }
+
+  // mimeOf is the media type of a page's URL, for the response Go's scheme
+  // serves.
+  private mimeOf(url: string): string {
+    const dot = url.lastIndexOf('.');
+    const end = url.indexOf('?', dot >= 0 ? dot : 0);
+    const ext = dot >= 0 ? url.substring(dot + 1, end > 0 ? end : undefined).toLowerCase() : '';
+    switch (ext) {
+      case 'html':
+      case 'htm':
+        return 'text/html';
+      case 'js':
+        return 'text/javascript';
+      case 'css':
+        return 'text/css';
+      case 'json':
+        return 'application/json';
+      case 'svg':
+        return 'image/svg+xml';
+      case 'png':
+        return 'image/png';
+      case 'jpg':
+      case 'jpeg':
+        return 'image/jpeg';
+      case 'woff2':
+        return 'font/woff2';
+      default:
+        return 'text/html';
+    }
   }
 
   // measure tells the host what the system covers, in pixels.
@@ -144,6 +182,40 @@ struct Index {
         .height('100%')
         .javaScriptAccess(true)
         .opacity(this.webVisible ? 1 : 0)
+        // The app's own schemes: Go serves them, and the answer comes back
+        // in this call, which waits while the app's handler runs.
+        .onInterceptRequest((event: OnInterceptRequestEvent) => {
+          const url = event.request.getRequestUrl();
+          if (!host.isAppScheme(url)) {
+            return null;
+          }
+          const method = event.request.getRequestMethod();
+          const header: string[] = [];
+          for (const h of event.request.getRequestHeader()) {
+            header.push(h.headerKey, h.headerValue);
+          }
+          const reply = host.schemeFetch(host.windowId, method, url, header, new Uint8Array(0), false);
+          if (reply === null) {
+            return null;
+          }
+          const response = new WebResourceResponse();
+          response.setResponseCode(reply.status === 0 ? 500 : reply.status);
+          response.setReasonMessage(reply.status === 0 ? 'Internal Server Error' : 'OK');
+          response.setResponseMimeType(this.mimeOf(url));
+          const mime = this.mimeOf(url);
+          if (mime.startsWith('text/') || mime === 'application/json') {
+            response.setResponseData(new util.TextDecoder('utf-8').decodeToString(reply.body));
+            response.setResponseEncoding('utf-8');
+          } else {
+            response.setResponseData(reply.body.buffer as ArrayBuffer);
+          }
+          const headers: Header[] = [];
+          for (let i = 0; i + 1 < reply.header.length; i += 2) {
+            headers.push({ headerKey: reply.header[i], headerValue: reply.header[i + 1] });
+          }
+          response.setResponseHeader(headers);
+          return response;
+        })
         .onPageBegin((event: OnPageBeginEvent) => {
           host.webBegan(host.webId, event.url);
         })

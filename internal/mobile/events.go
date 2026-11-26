@@ -3,6 +3,7 @@ package mobile
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"runtime"
 	"runtime/debug"
@@ -229,6 +230,18 @@ func (b *Backend) handle(msg []byte) []byte {
 		var e wire.SchemeRequestEvent
 		e.Decode(&r)
 		b.schemeRequest(&e)
+	case wire.EventSchemeFetch:
+		var e wire.SchemeFetchEvent
+		e.Decode(&r)
+		status, pairs, body, err := b.fetchScheme(&e)
+		w.Int(status)
+		w.Strings(pairs)
+		w.Bytes(body)
+		msg := ""
+		if err != nil {
+			msg = err.Error()
+		}
+		w.String(msg)
 	case wire.EventSchemeCancel:
 		var e wire.SchemeCancelEvent
 		e.Decode(&r)
@@ -290,6 +303,70 @@ type schemeRequest struct {
 	req    int
 	cancel context.CancelFunc
 	done   bool
+}
+
+// fetchScheme runs the app's scheme handler and waits for the whole answer,
+// for a host whose web engine must be given it in the same call. It runs on
+// the main thread, where the responder's answers come, and Go's calls of the
+// host run while it waits.
+func (b *Backend) fetchScheme(e *wire.SchemeFetchEvent) (int, []string, []byte, error) {
+	w := b.windows[e.ID]
+	if w == nil {
+		return 0, nil, nil, errors.New("mygo: no window for scheme " + e.URL)
+	}
+	header := map[string][]string{}
+	for i := 0; i+1 < len(e.Header); i += 2 {
+		header[e.Header[i]] = append(header[e.Header[i]], e.Header[i+1])
+	}
+	var body io.ReadCloser
+	if e.HasBody {
+		body = platform.BytesBody(e.Body)
+	}
+	f := &fetchResponder{done: make(chan struct{}, 1)}
+	w.h.SchemeRequest(&platform.SchemeRequest{
+		Context: context.Background(), Method: e.Method, URL: w.appURL(e.URL), Header: header, Body: body,
+		Responder: f,
+	})
+	<-f.done
+	if f.err != nil {
+		return 0, nil, nil, f.err
+	}
+	return f.status, f.pairs, f.body, nil
+}
+
+// fetchResponder collects a scheme's answer instead of sending it as it
+// comes.
+type fetchResponder struct {
+	done     chan struct{}
+	status   int
+	pairs    []string
+	body     []byte
+	err      error
+	finished bool
+}
+
+func (f *fetchResponder) Respond(status int, header map[string][]string) {
+	f.status = status
+	for k, vs := range header {
+		for _, v := range vs {
+			f.pairs = append(f.pairs, k, v)
+		}
+	}
+}
+
+func (f *fetchResponder) Write(p []byte) { f.body = append(f.body, p...) }
+
+func (f *fetchResponder) Finish() { f.end(nil) }
+
+func (f *fetchResponder) Fail(err error) { f.end(err) }
+
+func (f *fetchResponder) end(err error) {
+	if f.finished {
+		return
+	}
+	f.finished = true
+	f.err = err
+	f.done <- struct{}{}
 }
 
 func (b *Backend) schemeRequest(e *wire.SchemeRequestEvent) {

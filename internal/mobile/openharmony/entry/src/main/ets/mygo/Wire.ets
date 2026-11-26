@@ -2242,10 +2242,22 @@ export class Event {
     w.string(origin)
     return w.done()
   }
+  /** a request of one of the app's schemes, answered at once with all of it: the hosts whose web engine must hand the response back in the same call, as ArkUI's does. It carries the request and its answer, which SchemeRequest and its three parts carry as they come */
+  static schemeFetch(id: number, method: string, url: string, header: string[], body: Uint8Array, hasBody: boolean): Uint8Array {
+    const w = new WireWriter()
+    w.uvarint(36)
+    w.int(id)
+    w.string(method)
+    w.string(url)
+    w.strings(header)
+    w.bytes(body)
+    w.bool(hasBody)
+    return w.done()
+  }
   /** a request of one of the app's schemes (Header: names and values in turn) */
   static schemeRequest(id: number, req: number, method: string, url: string, header: string[], body: Uint8Array, hasBody: boolean): Uint8Array {
     const w = new WireWriter()
-    w.uvarint(36)
+    w.uvarint(37)
     w.int(id)
     w.int(req)
     w.string(method)
@@ -2257,13 +2269,13 @@ export class Event {
   }
   static schemeCancel(req: number): Uint8Array {
     const w = new WireWriter()
-    w.uvarint(37)
+    w.uvarint(38)
     w.int(req)
     return w.done()
   }
   static asyncResult(req: number, result: string, error: string): Uint8Array {
     const w = new WireWriter()
-    w.uvarint(38)
+    w.uvarint(39)
     w.int(req)
     w.string(result)
     w.string(error)
@@ -2271,7 +2283,7 @@ export class Event {
   }
   static captured(req: number, png: Uint8Array, error: string): Uint8Array {
     const w = new WireWriter()
-    w.uvarint(39)
+    w.uvarint(40)
     w.int(req)
     w.bytes(png)
     w.string(error)
@@ -2279,14 +2291,14 @@ export class Event {
   }
   static messageBoxResult(req: number, response: number): Uint8Array {
     const w = new WireWriter()
-    w.uvarint(40)
+    w.uvarint(41)
     w.int(req)
     w.int(response)
     return w.done()
   }
   static filesResult(req: number, paths: string[], error: string): Uint8Array {
     const w = new WireWriter()
-    w.uvarint(41)
+    w.uvarint(42)
     w.int(req)
     w.strings(paths)
     w.string(error)
@@ -2294,28 +2306,28 @@ export class Event {
   }
   static notifyDone(req: number, error: string): Uint8Array {
     const w = new WireWriter()
-    w.uvarint(42)
+    w.uvarint(43)
     w.int(req)
     w.string(error)
     return w.done()
   }
   static notificationClicked(notificationID: string): Uint8Array {
     const w = new WireWriter()
-    w.uvarint(43)
+    w.uvarint(44)
     w.string(notificationID)
     return w.done()
   }
   /** the display refreshes: draw a frame if one was asked for */
   static frame(id: number): Uint8Array {
     const w = new WireWriter()
-    w.uvarint(44)
+    w.uvarint(45)
     w.int(id)
     return w.done()
   }
   /** the native surface to draw on (a CAMetalLayer, an ANativeWindow), 0 when gone */
   static surfaceChanged(id: number, handle: number, width: number, height: number, scale: number, refresh: number): Uint8Array {
     const w = new WireWriter()
-    w.uvarint(45)
+    w.uvarint(46)
     w.int(id)
     w.int(handle)
     w.float(width)
@@ -2327,14 +2339,14 @@ export class Event {
   /** the native surface goes: the host waits for Go to let go of it */
   static surfaceDestroyed(id: number): Uint8Array {
     const w = new WireWriter()
-    w.uvarint(46)
+    w.uvarint(47)
     w.int(id)
     return w.done()
   }
   /** a finger, a pen or a mouse: Phase is "down", "move", "up" or "cancel", Kind "touch", "pen" or "mouse" */
   static touch(id: number, pointer: number, phase: string, kind: string, x: number, y: number, pressure: number, buttons: number, time: number): Uint8Array {
     const w = new WireWriter()
-    w.uvarint(47)
+    w.uvarint(48)
     w.int(id)
     w.int(pointer)
     w.string(phase)
@@ -2349,7 +2361,7 @@ export class Event {
   /** a mouse's or a trackpad's scrolling, in DIPs */
   static scroll(id: number, x: number, y: number, dx: number, dy: number, precise: boolean, phase: string): Uint8Array {
     const w = new WireWriter()
-    w.uvarint(48)
+    w.uvarint(49)
     w.int(id)
     w.float(x)
     w.float(y)
@@ -2362,7 +2374,7 @@ export class Event {
   /** a hardware keyboard's key: Down, its name (as ui names keys) and the text it types */
   static key(id: number, down: boolean, key: string, text: string, mods: number, repeated: boolean): Uint8Array {
     const w = new WireWriter()
-    w.uvarint(49)
+    w.uvarint(50)
     w.int(id)
     w.bool(down)
     w.string(key)
@@ -2374,7 +2386,7 @@ export class Event {
   /** the keyboard put Text in Start to End of the document, or with no range in place of the marked text or the selection; answers TextStateReply */
   static textReplace(id: number, hasRange: boolean, start: number, end: number, text: string): Uint8Array {
     const w = new WireWriter()
-    w.uvarint(50)
+    w.uvarint(51)
     w.int(id)
     w.bool(hasRange)
     w.int(start)
@@ -2385,7 +2397,7 @@ export class Event {
   /** the input method composes Text over Start to End, or with no range over the marked text or the selection; SelStart and SelEnd are in Text; answers TextStateReply */
   static textMark(id: number, hasRange: boolean, start: number, end: number, text: string, selStart: number, selEnd: number): Uint8Array {
     const w = new WireWriter()
-    w.uvarint(51)
+    w.uvarint(52)
     w.int(id)
     w.bool(hasRange)
     w.int(start)
@@ -2398,14 +2410,14 @@ export class Event {
   /** the marked text stays as text; answers TextStateReply */
   static textUnmark(id: number): Uint8Array {
     const w = new WireWriter()
-    w.uvarint(52)
+    w.uvarint(53)
     w.int(id)
     return w.done()
   }
   /** the keyboard deleted Before units before the selection and After after it; answers TextStateReply */
   static textDelete(id: number, before: number, after: number): Uint8Array {
     const w = new WireWriter()
-    w.uvarint(53)
+    w.uvarint(54)
     w.int(id)
     w.int(before)
     w.int(after)
@@ -2414,7 +2426,7 @@ export class Event {
   /** the keyboard moved the selection; answers TextStateReply */
   static textSelect(id: number, start: number, end: number): Uint8Array {
     const w = new WireWriter()
-    w.uvarint(54)
+    w.uvarint(55)
     w.int(id)
     w.int(start)
     w.int(end)
@@ -2423,7 +2435,7 @@ export class Event {
   /** an editing action of the keyboard or the edit menu: "newline", "tab", "deleteBackward", "deleteForward", "cut", "copy", "paste", "selectAll", "left", …; answers TextStateReply */
   static textCommand(id: number, command: string): Uint8Array {
     const w = new WireWriter()
-    w.uvarint(55)
+    w.uvarint(56)
     w.int(id)
     w.string(command)
     return w.done()
@@ -2431,14 +2443,14 @@ export class Event {
   /** the text around the selection, and the selection */
   static textState(id: number): Uint8Array {
     const w = new WireWriter()
-    w.uvarint(56)
+    w.uvarint(57)
     w.int(id)
     return w.done()
   }
   /** a part of the document outside the text the host has */
   static textRange(id: number, start: number, end: number): Uint8Array {
     const w = new WireWriter()
-    w.uvarint(57)
+    w.uvarint(58)
     w.int(id)
     w.int(start)
     w.int(end)
@@ -2447,7 +2459,7 @@ export class Event {
   /** where the range is on screen: its first line's rectangle */
   static textBounds(id: number, start: number, end: number): Uint8Array {
     const w = new WireWriter()
-    w.uvarint(58)
+    w.uvarint(59)
     w.int(id)
     w.int(start)
     w.int(end)
@@ -2456,7 +2468,7 @@ export class Event {
   /** the offset nearest a point of the window */
   static textIndexAt(id: number, x: number, y: number): Uint8Array {
     const w = new WireWriter()
-    w.uvarint(59)
+    w.uvarint(60)
     w.int(id)
     w.float(x)
     w.float(y)
@@ -2465,21 +2477,21 @@ export class Event {
   /** the keyboard went away */
   static textInputEnded(id: number): Uint8Array {
     const w = new WireWriter()
-    w.uvarint(60)
+    w.uvarint(61)
     w.int(id)
     return w.done()
   }
   /** the accessible elements, encoded as Nodes: for each, its ID, parent, role, label, value, hint, frame and actions */
   static accessibilityTree(id: number): Uint8Array {
     const w = new WireWriter()
-    w.uvarint(61)
+    w.uvarint(62)
     w.int(id)
     return w.done()
   }
   /** an assistive technology's action on an element: "press", "increment", "decrement", "focus", "scrollForward", … */
   static accessibilityAction(id: number, node: number, action: string): Uint8Array {
     const w = new WireWriter()
-    w.uvarint(62)
+    w.uvarint(63)
     w.int(id)
     w.int(node)
     w.string(action)
@@ -2539,6 +2551,22 @@ export class PermissionRequestedReply {
   static decode(r: WireReader): PermissionRequestedReply {
     const c = new PermissionRequestedReply()
     c.allow = r.bool()
+    return c
+  }
+}
+
+export class SchemeFetchReply {
+  status: number = 0
+  header: string[] = []
+  body: Uint8Array = new Uint8Array(0)
+  error: string = ''
+  constructor() {}
+  static decode(r: WireReader): SchemeFetchReply {
+    const c = new SchemeFetchReply()
+    c.status = r.int()
+    c.header = r.strings()
+    c.body = r.bytes()
+    c.error = r.string()
     return c
   }
 }

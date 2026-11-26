@@ -1937,10 +1937,22 @@ public enum Event {
         w.string(origin)
         return w.buf
     }
+    /// a request of one of the app's schemes, answered at once with all of it: the hosts whose web engine must hand the response back in the same call, as ArkUI's does. It carries the request and its answer, which SchemeRequest and its three parts carry as they come
+    public static func schemeFetch(id: Int, method: String, url: String, header: [String], body: [UInt8], hasBody: Bool) -> [UInt8] {
+        var w = WireWriter()
+        w.uvarint(36)
+        w.int(id)
+        w.string(method)
+        w.string(url)
+        w.strings(header)
+        w.bytes(body)
+        w.bool(hasBody)
+        return w.buf
+    }
     /// a request of one of the app's schemes (Header: names and values in turn)
     public static func schemeRequest(id: Int, req: Int, method: String, url: String, header: [String], body: [UInt8], hasBody: Bool) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(36)
+        w.uvarint(37)
         w.int(id)
         w.int(req)
         w.string(method)
@@ -1952,13 +1964,13 @@ public enum Event {
     }
     public static func schemeCancel(req: Int) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(37)
+        w.uvarint(38)
         w.int(req)
         return w.buf
     }
     public static func asyncResult(req: Int, result: String, error: String) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(38)
+        w.uvarint(39)
         w.int(req)
         w.string(result)
         w.string(error)
@@ -1966,7 +1978,7 @@ public enum Event {
     }
     public static func captured(req: Int, png: [UInt8], error: String) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(39)
+        w.uvarint(40)
         w.int(req)
         w.bytes(png)
         w.string(error)
@@ -1974,14 +1986,14 @@ public enum Event {
     }
     public static func messageBoxResult(req: Int, response: Int) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(40)
+        w.uvarint(41)
         w.int(req)
         w.int(response)
         return w.buf
     }
     public static func filesResult(req: Int, paths: [String], error: String) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(41)
+        w.uvarint(42)
         w.int(req)
         w.strings(paths)
         w.string(error)
@@ -1989,28 +2001,28 @@ public enum Event {
     }
     public static func notifyDone(req: Int, error: String) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(42)
+        w.uvarint(43)
         w.int(req)
         w.string(error)
         return w.buf
     }
     public static func notificationClicked(notificationID: String) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(43)
+        w.uvarint(44)
         w.string(notificationID)
         return w.buf
     }
     /// the display refreshes: draw a frame if one was asked for
     public static func frame(id: Int) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(44)
+        w.uvarint(45)
         w.int(id)
         return w.buf
     }
     /// the native surface to draw on (a CAMetalLayer, an ANativeWindow), 0 when gone
     public static func surfaceChanged(id: Int, handle: Int, width: Double, height: Double, scale: Double, refresh: Double) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(45)
+        w.uvarint(46)
         w.int(id)
         w.int(handle)
         w.float(width)
@@ -2022,14 +2034,14 @@ public enum Event {
     /// the native surface goes: the host waits for Go to let go of it
     public static func surfaceDestroyed(id: Int) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(46)
+        w.uvarint(47)
         w.int(id)
         return w.buf
     }
     /// a finger, a pen or a mouse: Phase is "down", "move", "up" or "cancel", Kind "touch", "pen" or "mouse"
     public static func touch(id: Int, pointer: Int, phase: String, kind: String, x: Double, y: Double, pressure: Double, buttons: Int, time: Double) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(47)
+        w.uvarint(48)
         w.int(id)
         w.int(pointer)
         w.string(phase)
@@ -2044,7 +2056,7 @@ public enum Event {
     /// a mouse's or a trackpad's scrolling, in DIPs
     public static func scroll(id: Int, x: Double, y: Double, dx: Double, dy: Double, precise: Bool, phase: String) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(48)
+        w.uvarint(49)
         w.int(id)
         w.float(x)
         w.float(y)
@@ -2057,7 +2069,7 @@ public enum Event {
     /// a hardware keyboard's key: Down, its name (as ui names keys) and the text it types
     public static func key(id: Int, down: Bool, key: String, text: String, mods: Int, repeated: Bool) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(49)
+        w.uvarint(50)
         w.int(id)
         w.bool(down)
         w.string(key)
@@ -2069,7 +2081,7 @@ public enum Event {
     /// the keyboard put Text in Start to End of the document, or with no range in place of the marked text or the selection; answers TextStateReply
     public static func textReplace(id: Int, hasRange: Bool, start: Int, end: Int, text: String) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(50)
+        w.uvarint(51)
         w.int(id)
         w.bool(hasRange)
         w.int(start)
@@ -2080,7 +2092,7 @@ public enum Event {
     /// the input method composes Text over Start to End, or with no range over the marked text or the selection; SelStart and SelEnd are in Text; answers TextStateReply
     public static func textMark(id: Int, hasRange: Bool, start: Int, end: Int, text: String, selStart: Int, selEnd: Int) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(51)
+        w.uvarint(52)
         w.int(id)
         w.bool(hasRange)
         w.int(start)
@@ -2093,14 +2105,14 @@ public enum Event {
     /// the marked text stays as text; answers TextStateReply
     public static func textUnmark(id: Int) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(52)
+        w.uvarint(53)
         w.int(id)
         return w.buf
     }
     /// the keyboard deleted Before units before the selection and After after it; answers TextStateReply
     public static func textDelete(id: Int, before: Int, after: Int) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(53)
+        w.uvarint(54)
         w.int(id)
         w.int(before)
         w.int(after)
@@ -2109,7 +2121,7 @@ public enum Event {
     /// the keyboard moved the selection; answers TextStateReply
     public static func textSelect(id: Int, start: Int, end: Int) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(54)
+        w.uvarint(55)
         w.int(id)
         w.int(start)
         w.int(end)
@@ -2118,7 +2130,7 @@ public enum Event {
     /// an editing action of the keyboard or the edit menu: "newline", "tab", "deleteBackward", "deleteForward", "cut", "copy", "paste", "selectAll", "left", …; answers TextStateReply
     public static func textCommand(id: Int, command: String) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(55)
+        w.uvarint(56)
         w.int(id)
         w.string(command)
         return w.buf
@@ -2126,14 +2138,14 @@ public enum Event {
     /// the text around the selection, and the selection
     public static func textState(id: Int) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(56)
+        w.uvarint(57)
         w.int(id)
         return w.buf
     }
     /// a part of the document outside the text the host has
     public static func textRange(id: Int, start: Int, end: Int) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(57)
+        w.uvarint(58)
         w.int(id)
         w.int(start)
         w.int(end)
@@ -2142,7 +2154,7 @@ public enum Event {
     /// where the range is on screen: its first line's rectangle
     public static func textBounds(id: Int, start: Int, end: Int) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(58)
+        w.uvarint(59)
         w.int(id)
         w.int(start)
         w.int(end)
@@ -2151,7 +2163,7 @@ public enum Event {
     /// the offset nearest a point of the window
     public static func textIndexAt(id: Int, x: Double, y: Double) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(59)
+        w.uvarint(60)
         w.int(id)
         w.float(x)
         w.float(y)
@@ -2160,21 +2172,21 @@ public enum Event {
     /// the keyboard went away
     public static func textInputEnded(id: Int) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(60)
+        w.uvarint(61)
         w.int(id)
         return w.buf
     }
     /// the accessible elements, encoded as Nodes: for each, its ID, parent, role, label, value, hint, frame and actions
     public static func accessibilityTree(id: Int) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(61)
+        w.uvarint(62)
         w.int(id)
         return w.buf
     }
     /// an assistive technology's action on an element: "press", "increment", "decrement", "focus", "scrollForward", …
     public static func accessibilityAction(id: Int, node: Int, action: String) -> [UInt8] {
         var w = WireWriter()
-        w.uvarint(62)
+        w.uvarint(63)
         w.int(id)
         w.int(node)
         w.string(action)
@@ -2223,6 +2235,20 @@ public struct PermissionRequestedReply {
     public init() {}
     init(_ r: inout WireReader) {
         allow = r.bool()
+    }
+}
+
+public struct SchemeFetchReply {
+    public var status: Int = 0
+    public var header: [String] = []
+    public var body: [UInt8] = []
+    public var error: String = ""
+    public init() {}
+    init(_ r: inout WireReader) {
+        status = r.int()
+        header = r.strings()
+        body = r.bytes()
+        error = r.string()
     }
 }
 

@@ -192,8 +192,14 @@ a layer above ArkUI's and a window of the app's has none of these overlays:
 the bars of tabs (`CreateTabs` … `CloseTabs`), the stack of a phone
 (`PushWindow`, `PopWindow`, `SetStack`, `StackShown`), the bar's items, the
 popup menu (answered at once as dismissed, so nothing waits), the edit menu
-and the magnifier, a plugin's native code, a page's snapshot, and the app's
-schemes through the web engine's requests.
+and the magnifier, a plugin's native code, and a page's snapshot.
+
+The app's schemes are the one place the protocol was short a message:
+ArkUI's web engine must be handed a request's response in the same call,
+while `SchemeRequest` and its three parts answer as they come. `SchemeFetch`
+(added to `spec.go`) carries the request and its whole answer, and Go's
+handler of the scheme runs while the host waits: the device's log says
+`scheme GET app://localhost/hello` for a page Go served.
 
 The text calls (`TextMetrics`, `MeasureText`, `TextAdvances`,
 `MeasureTextRun`, `DrawText`, `RegisterFont`) answer with a font of half a
