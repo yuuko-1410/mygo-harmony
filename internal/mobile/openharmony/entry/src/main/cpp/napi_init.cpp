@@ -54,6 +54,10 @@ napi_threadsafe_function g_relay = nullptr;  // events of other windows, for it
 // each other hold still.
 std::mutex g_pendingMu;
 std::deque<std::vector<uint8_t>> g_pendingEvents;
+// Whether Go is running on this thread now: an event that comes while it
+// does — a window of the app's is an instance of its own, on this same
+// thread — waits too, or Go would be entered twice and wait for itself.
+thread_local int g_inEvent = 0;
 
 // dispatchOnJS runs one call of Go's on the host of the instance that runs
 // Go: defined below, where the module's methods are.
@@ -341,7 +345,7 @@ napi_value event(napi_env env, napi_callback_info info) {
     if (!bytes(argv[0], &msg, &n)) {
         return nullptr;
     }
-    if (g_jsThread != 0 && static_cast<pid_t>(gettid()) != g_jsThread) {
+    if (g_inEvent > 0 || (g_jsThread != 0 && static_cast<pid_t>(gettid()) != g_jsThread)) {
         // A window of its own is an instance of its own, and its events go
         // to the instance that runs Go — queued, not waited for: it is the
         // one that runs Go that pumps them (pump), at its next frame.
@@ -354,7 +358,9 @@ napi_value event(napi_env env, napi_callback_info info) {
     }
     uint8_t *reply = nullptr;
     size_t replyLen = 0;
+    g_inEvent++;
     mygo_event(msg, n, 1, &reply, &replyLen);
+    g_inEvent--;
     std::free(msg);
     if (reply == nullptr) {
         return nullptr;
