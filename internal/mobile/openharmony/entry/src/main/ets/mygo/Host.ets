@@ -23,7 +23,7 @@ import { BusinessError } from '@ohos.base';
 import { AppInfoReply, BatteryReply, CreateWindowCall, CreateWindowReply, Event, FirstFrameCall,
   LoadHTMLCall, LoadURLCall, MessageBoxCall, RequestFrameCall, ScreenReply, SetBackgroundCall, SetFrameRateCall, SetTextInputCall,
   ClipboardTextReply, EvalCall, GoBackCall, HapticCall, KeepAwakeCall, NetworkStatusReply,
-  NotifyCall, OpenFilesCall, ShareCall, ShareFileCall, PlaceViewsCall, OpenURLReply, OpenURLCall, RemoveNotificationCall, SaveFileCall,
+  CloseWindowCall, FocusCall, HideWindowCall, NotifyCall, OpenFilesCall, ShareCall, ShareFileCall, PlaceViewsCall, OpenURLReply, OpenURLCall, RemoveNotificationCall, SaveFileCall,
   SecretDeleteCall, SecretDeleteReply, SecretGetCall, SecretGetReply, SecretSetCall, SecretSetReply,
   SetClipboardTextCall, SetSystemBarsCall, GoForwardCall, ReloadCall, SetTitleCall, SetZoomCall, ShowWindowCall,
   StopLoadingCall, ThemeReply, WireReader, dispatchCall } from './Wire';
@@ -108,6 +108,49 @@ export class Host extends HostStubs {
 
   showWindow(c: ShowWindowCall): void {
     this.windowId = c.id;
+    const sub = this.subs.get(c.id);
+    if (sub !== undefined) {
+      sub.showWindow().catch((e: BusinessError) => {
+        console.error(`mygo: show ${c.id}: ${e.message}`);
+      });
+    }
+  }
+
+  // hideWindow and closeWindow are a child window's page going away, and the
+  // window it showed in going with it.
+  hideWindow(c: HideWindowCall): void {
+    const sub = this.subs.get(c.id);
+    if (sub !== undefined) {
+      sub.minimize().catch((e: BusinessError) => {
+        console.error(`mygo: hide ${c.id}: ${e.message}`);
+      });
+    }
+  }
+
+  closeWindow(c: CloseWindowCall): void {
+    const sub = this.subs.get(c.id);
+    if (sub === undefined) {
+      return;
+    }
+    this.subs.delete(c.id);
+    this.webChildren.delete(c.id);
+    this.webSources.delete(c.id);
+    this.placed = this.placed.filter((id: number): boolean => id !== c.id);
+    sub.destroyWindow().then(() => {
+      console.info(`mygo: closed ${c.id}`);
+    }).catch((e: BusinessError) => {
+      console.error(`mygo: close ${c.id}: ${e.message}`);
+    });
+  }
+
+  // focus brings a child window's page to the front.
+  focus(c: FocusCall): void {
+    const sub = this.subs.get(c.id);
+    if (sub !== undefined) {
+      sub.showWindow().catch((e: BusinessError) => {
+        console.error(`mygo: focus ${c.id}: ${e.message}`);
+      });
+    }
   }
 
   firstFrame(c: FirstFrameCall): void {}

@@ -89,7 +89,9 @@ takes the first typeface that really maps the rune (a check, not a hope).
   the host shows it in a window of its own (`windowStage.createSubWindow`),
   moved and sized there, with the child's page loading through
   `pages/Embedded` — a surface is a layer above ArkUI's, so a web view
-  cannot sit on it in the same window. The host ignores the covers, the
+  cannot sit on it in the same window. `CloseWindow` destroys that window,
+  `HideWindow` minimizes it and `Focus` and `ShowWindow` bring it back, which
+  the device's log shows as `closed 2`. The host ignores the covers, the
   places the content painted over a page, so a finger over one goes to the
   page;
 - pages: a window Go makes without a surface is ArkUI's `Web` component,
