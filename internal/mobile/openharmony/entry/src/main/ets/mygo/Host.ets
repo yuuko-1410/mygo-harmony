@@ -13,7 +13,9 @@ import util from '@ohos.util';
 import picker from '@ohos.file.picker';
 import fs from '@ohos.file.fs';
 import notificationManager from '@ohos.notificationManager';
-import wantAgent from '@ohos.app.ability.wantAgent';
+import { systemShare } from '@kit.ShareKit';
+import { uniformTypeDescriptor } from '@kit.ArkData';
+import fileUri from '@ohos.file.fileuri';
 import common from '@ohos.app.ability.common';
 import window from '@ohos.window';
 import { PromptAction } from '@ohos.arkui.UIContext';
@@ -21,7 +23,7 @@ import { BusinessError } from '@ohos.base';
 import { AppInfoReply, BatteryReply, CreateWindowCall, CreateWindowReply, Event, FirstFrameCall,
   LoadHTMLCall, LoadURLCall, MessageBoxCall, RequestFrameCall, ScreenReply, SetBackgroundCall, SetFrameRateCall, SetTextInputCall,
   ClipboardTextReply, EvalCall, GoBackCall, HapticCall, KeepAwakeCall, NetworkStatusReply,
-  NotifyCall, OpenFilesCall, PlaceViewsCall, OpenURLReply, OpenURLCall, RemoveNotificationCall, SaveFileCall,
+  NotifyCall, OpenFilesCall, ShareCall, ShareFileCall, PlaceViewsCall, OpenURLReply, OpenURLCall, RemoveNotificationCall, SaveFileCall,
   SecretDeleteCall, SecretDeleteReply, SecretGetCall, SecretGetReply, SecretSetCall, SecretSetReply,
   SetClipboardTextCall, SetSystemBarsCall, GoForwardCall, ReloadCall, SetTitleCall, SetZoomCall, ShowWindowCall,
   StopLoadingCall, ThemeReply, WireReader, dispatchCall } from './Wire';
@@ -799,6 +801,78 @@ export class Host extends HostStubs {
     const storage = new LocalStorage();
     storage.setOrCreate('id', id);
     return storage;
+  }
+
+  // shareFile shows the system's share sheet for a file: the place to
+  // save it, or send it on.
+  shareFile(c: ShareFileCall): void {
+    const single = new ShareCall();
+    single.req = 0;
+    single.text = '';
+    single.url = '';
+    single.paths = [c.path];
+    single.x = 0;
+    single.y = 0;
+    this.share(single);
+  }
+
+  // share shows the system's share panel for text, a link and files.
+  share(c: ShareCall): void {
+    const ctx = this.ctx as common.UIAbilityContext | undefined;
+    if (ctx === undefined) {
+      return;
+    }
+    const records: systemShare.SharedRecord[] = [];
+    if (c.text.length > 0) {
+      records.push({
+        utd: uniformTypeDescriptor.UniformDataType.PLAIN_TEXT,
+        content: c.url.length > 0 ? `${c.text}\n${c.url}` : c.text,
+      });
+    }
+    for (const path of c.paths) {
+      records.push({
+        utd: uniformTypeDescriptor.UniformDataType.FILE,
+        uri: fileUri.getUriFromPath(path),
+      });
+    }
+    if (records.length === 0) {
+      return;
+    }
+    try {
+      const data = new systemShare.SharedData(records[0]);
+      for (let i = 1; i < records.length; i++) {
+        data.addRecord(records[i]);
+      }
+      const controller = new systemShare.ShareController(data);
+      controller.show(ctx, {
+        previewMode: systemShare.SharePreviewMode.DETAIL,
+        selectionMode: systemShare.SelectionMode.SINGLE,
+      });
+    } catch (e) {
+      console.error(`mygo: share: ${e}`);
+    }
+  }
+
+  // mimeOf is the media type of a file, by its name.
+  private mimeOf(path: string): string {
+    const dot = path.lastIndexOf('.');
+    const ext = dot >= 0 ? path.substring(dot + 1).toLowerCase() : '';
+    switch (ext) {
+      case 'png':
+        return 'image/png';
+      case 'jpg':
+      case 'jpeg':
+        return 'image/jpeg';
+      case 'pdf':
+        return 'application/pdf';
+      case 'json':
+        return 'application/json';
+      case 'txt':
+      case 'md':
+        return 'text/plain';
+      default:
+        return 'application/octet-stream';
+    }
   }
 
   // requestFrame notes that Go has something to draw: the display's next

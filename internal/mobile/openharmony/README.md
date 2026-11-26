@@ -99,6 +99,9 @@ takes the first typeface that really maps the rune (a check, not a hope).
   XComponent goes while a page shows: a surface is a layer of its own, over
   ArkUI's, and the page would be under it. A page needs
   `ohos.permission.INTERNET` in the app's `module.json5`;
+- the share panel: `Share` and `ShareFile` show it through ShareKit
+  (`systemShare.ShareController`), for text, a link and files — the sheet the
+  system has, with the app's own targets;
 - notifications: `Notify` publishes to the system's list (asking the user to
   allow them the first time, when the system says they are off), and
   `RemoveNotification` and `RemoveAllNotifications` take them away. Whether
