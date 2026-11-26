@@ -194,12 +194,19 @@ the bars of tabs (`CreateTabs` … `CloseTabs`), the stack of a phone
 popup menu (answered at once as dismissed, so nothing waits), the edit menu
 and the magnifier, a plugin's native code, and a page's snapshot.
 
-The app's schemes are the one place the protocol was short a message:
-ArkUI's web engine must be handed a request's response in the same call,
-while `SchemeRequest` and its three parts answer as they come. `SchemeFetch`
-(added to `spec.go`) carries the request and its whole answer, and Go's
-handler of the scheme runs while the host waits: the device's log says
-`scheme GET app://localhost/hello` for a page Go served.
+The app's schemes needed a message the protocol did not have: ArkUI's web
+engine must be handed a request's response in the same call it asks, while
+`SchemeRequest` and its three parts answer as they come. `SchemeFetch` (in
+`spec.go`) carries the request and its whole answer, and Go runs the app's
+handler while the host waits — and there the app froze: the handler is the
+core's, which runs on the same main thread the wait is on, so the answer it
+would give cannot be made while it waits for it. The device's log says
+`scheme GET app://localhost/hello` and then an appfreeze.
+
+So the host does not intercept: a page of the app's own scheme is not served
+yet, and serving it needs the core to answer a scheme from a thread of its
+own while its main thread waits — a change of `internal/mobile`, not of this
+host.
 
 The text calls (`TextMetrics`, `MeasureText`, `TextAdvances`,
 `MeasureTextRun`, `DrawText`, `RegisterFont`) answer with a font of half a
