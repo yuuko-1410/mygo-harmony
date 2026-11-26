@@ -1214,13 +1214,22 @@ export class Host extends HostStubs {
     }
   }
 
+  // The renderer takes a write a time: Go writes as its player runs, and
+  // writes that pile onto one another are the renderer's buffers made
+  // wreckage of. Each waits for the one before it.
+  private audioQueue: Promise<void> = Promise.resolve();
+
   private writeAudio(samples: Uint8Array): void {
     const renderer = this.renderer;
     if (renderer === null || samples.length === 0) {
       return;
     }
-    renderer.write(samples.buffer.slice(0) as ArrayBuffer).catch((e: BusinessError) => {
-      console.error(`mygo: audio write: ${e.message}`);
+    const buf = samples.buffer.slice(0) as ArrayBuffer;
+    this.audioQueue = this.audioQueue.then(() => {
+      return renderer.write(buf).then(() => {
+      }).catch((e: BusinessError) => {
+        console.error(`mygo: audio write: ${e.message}`);
+      });
     });
   }
 
