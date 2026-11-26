@@ -15,6 +15,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -609,13 +610,14 @@ func TestFileWatchRemovedWhileRead(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			remove := !again
+			remove, removed := !again, make(chan struct{})
 			ignore := func(p string, isDir bool) bool {
 				if remove && path.Dir(p) == "a/sub" {
 					remove = false
 					if err := os.RemoveAll(sub); err != nil {
 						t.Error(err)
 					}
+					close(removed)
 				}
 				return false
 			}
@@ -627,6 +629,8 @@ func TestFileWatchRemovedWhileRead(t *testing.T) {
 			if again {
 				remove = true
 				fileWatchTestNotice(t, w, "a/sub", platform.FileWatchNotice{})
+				// The system tells of it once it is removed, not before.
+				wait.For(t, "the removal", removed)
 				fileWatchTestNotice(t, w, "a", platform.FileWatchNotice{Name: "sub", Kind: platform.FileWatchRemove})
 				fileWatchTestUntil(t, w, FileEvent{Op: FileRemove, Path: "a/sub", IsDir: true})
 			}
@@ -636,6 +640,65 @@ func TestFileWatchRemovedWhileRead(t *testing.T) {
 			fileWatchTestNotice(t, w, "a", platform.FileWatchNotice{Name: "new", Kind: platform.FileWatchCreate})
 			fileWatchTestUntil(t, w, FileEvent{Op: FileCreate, Path: "a/new"})
 		})
+	}
+}
+
+// What is replaced or removed as the backend, which lost it, is given it
+// again, which fails, doesn't end the watch.
+func TestFileWatchReplacedWhileEnrolled(t *testing.T) {
+	for _, kind := range []string{"file", "directory", "nothing"} {
+		for _, recursive := range []bool{true, false} {
+			// Looked at itself, and from the directory that has it.
+			for _, listed := range []bool{false, true} {
+				t.Run(fmt.Sprintf("%s recursive=%v listed=%v", kind, recursive, listed), func(t *testing.T) {
+					dir := t.TempDir()
+					sub := filepath.Join(dir, "sub")
+					if err := os.Mkdir(sub, 0700); err != nil {
+						t.Fatal(err)
+					}
+					outside := t.TempDir()
+					var replace atomic.Bool
+					fb.FileWatchAddHook = func(target platform.FileWatchTarget) error {
+						if filepath.Base(target.Path) != "sub" || !replace.CompareAndSwap(true, false) {
+							return nil
+						}
+						// Kept, so that its identity isn't used again.
+						err := os.Rename(sub, filepath.Join(outside, "sub"))
+						if err == nil && kind == "file" {
+							err = os.WriteFile(sub, nil, 0600)
+						} else if err == nil && kind == "directory" {
+							err = os.Mkdir(sub, 0700)
+						}
+						if err != nil {
+							t.Error(err)
+						}
+						return errors.New("not a directory")
+					}
+					defer func() { fb.FileWatchAddHook = nil }()
+					w, err := WatchFiles(context.Background(), dir, FileWatchOptions{Recursive: recursive, Debounce: -1})
+					if err != nil {
+						t.Fatal(err)
+					}
+					defer w.Close()
+					replace.Store(true)
+					if listed {
+						fileWatchTestNotice(t, w, ".", platform.FileWatchNotice{})
+					}
+					fileWatchTestNotice(t, w, "sub", platform.FileWatchNotice{Kind: platform.FileWatchLost})
+					fileWatchTestNotice(t, w, ".", platform.FileWatchNotice{})
+					want := []FileEvent{{Op: FileRemove, Path: "sub", IsDir: true}}
+					if kind != "nothing" {
+						want = append(want, FileEvent{Op: FileCreate, Path: "sub", IsDir: kind == "directory"})
+					}
+					fileWatchTestUntil(t, w, want...)
+					if err := os.WriteFile(filepath.Join(dir, "new"), nil, 0600); err != nil {
+						t.Fatal(err)
+					}
+					fileWatchTestNotice(t, w, ".", platform.FileWatchNotice{Name: "new", Kind: platform.FileWatchCreate})
+					fileWatchTestUntil(t, w, FileEvent{Op: FileCreate, Path: "new"})
+				})
+			}
+		}
 	}
 }
 
@@ -1611,6 +1674,63 @@ func TestFileWatchHintsOnly(t *testing.T) {
 	}
 }
 
+// A directory that a hints-only watch enrolls, whose parent is replaced
+// by a file or a symlink out of the root just then, doesn't end the watch:
+// the parent's hint covers it.
+func TestFileWatchHintsOnlyParentReplaced(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("a directory being read can't be renamed")
+	}
+	for _, kind := range []string{"file", "symlink"} {
+		t.Run(kind, func(t *testing.T) {
+			dir := t.TempDir()
+			sub := filepath.Join(dir, "sub")
+			if err := os.MkdirAll(filepath.Join(sub, "new"), 0700); err != nil {
+				t.Fatal(err)
+			}
+			outside := t.TempDir()
+			var replace atomic.Bool
+			fb.FileWatchAddHook = func(target platform.FileWatchTarget) error {
+				if !strings.HasSuffix(target.Path, filepath.Join("sub", "new")) || !replace.CompareAndSwap(true, false) {
+					return nil
+				}
+				// Kept, so that its identity isn't used again.
+				err := os.Rename(sub, filepath.Join(outside, "sub"))
+				if err == nil && kind == "file" {
+					err = os.WriteFile(sub, nil, 0600)
+				} else if err == nil {
+					err = os.Symlink(outside, sub)
+				}
+				if err != nil {
+					t.Error(err)
+				}
+				return errors.New("not a directory")
+			}
+			defer func() { fb.FileWatchAddHook = nil }()
+			if err := os.Remove(filepath.Join(sub, "new")); err != nil {
+				t.Fatal(err)
+			}
+			w, err := WatchFiles(context.Background(), dir, FileWatchOptions{Recursive: true, Debounce: -1, HintsOnly: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer w.Close()
+			if err := os.Mkdir(filepath.Join(sub, "new"), 0700); err != nil {
+				t.Fatal(err)
+			}
+			replace.Store(true)
+			fileWatchTestNotice(t, w, "sub", platform.FileWatchNotice{Name: "new", Kind: platform.FileWatchCreate})
+			if got := fileWatchTestHints(t, w); !slices.Equal(got, []string{"sub"}) {
+				t.Fatalf("hints %v", got)
+			}
+			fileWatchTestNotice(t, w, ".", platform.FileWatchNotice{Name: "sub", Kind: platform.FileWatchCreate})
+			if got := fileWatchTestHints(t, w); !slices.Equal(got, []string{"."}) {
+				t.Fatalf("hints %v", got)
+			}
+		})
+	}
+}
+
 // With a backend that watches a tree with one target, a hints-only watch
 // enrolls nothing else, and hints at the directory of what changed deep
 // down, but not in an ignored one.
@@ -1635,6 +1755,84 @@ func TestFileWatchHintsOnlySubtree(t *testing.T) {
 	fileWatchTestNotice(t, w, ".", platform.FileWatchNotice{Name: ".git/objects/x", Kind: platform.FileWatchCreate})
 	fileWatchTestNotice(t, w, ".", platform.FileWatchNotice{Name: "a/b/f", Kind: platform.FileWatchWrite})
 	if got := fileWatchTestHints(t, w); !slices.Equal(got, []string{"a/b"}) {
+		t.Fatalf("hints %v", got)
+	}
+}
+
+// A hints-only watch doesn't enroll a directory by a path through a symlink
+// that replaced one of the directories above it: it would watch a
+// directory that is elsewhere, and hint at what changes in it under the
+// symlink's name.
+func TestFileWatchHintsOnlyThroughSymlink(t *testing.T) {
+	dir := t.TempDir()
+	for _, p := range []string{"a/x", "d"} {
+		if err := os.MkdirAll(filepath.Join(dir, filepath.FromSlash(p)), 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	w, err := WatchFiles(context.Background(), dir, FileWatchOptions{Recursive: true, Debounce: -1, HintsOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+	native := w.native.(*fake.FileWatch)
+	// A batch waits for Next, so that the next update looks at both
+	// notices below at once.
+	if err := os.WriteFile(filepath.Join(dir, "f"), nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	fileWatchTestNotice(t, w, ".", platform.FileWatchNotice{Name: "f", Kind: platform.FileWatchCreate})
+	wait.Until(t, "a batch of f", w.waiting)
+	// Something made in d, then d replaced by a symlink to a, which has
+	// an x too.
+	if err := os.Remove(filepath.Join(dir, "d")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("a", filepath.Join(dir, "d")); err != nil {
+		t.Fatal(err)
+	}
+	fileWatchTestNotice(t, w, "d", platform.FileWatchNotice{Name: "x", Kind: platform.FileWatchCreate})
+	fileWatchTestNotice(t, w, ".", platform.FileWatchNotice{Name: "d", Kind: platform.FileWatchCreate})
+	wait.Until(t, "the notices taken", func() bool { return len(w.raw) == 0 })
+	for _, want := range [][]string{{"."}, {"."}} {
+		if got := fileWatchTestHints(t, w); !slices.Equal(got, want) {
+			t.Fatalf("hints %v", got)
+		}
+	}
+	var paths []string
+	for _, target := range native.Targets() {
+		if rel, err := filepath.Rel(w.root, target.Path); err == nil && !strings.HasPrefix(rel, "..") {
+			paths = append(paths, filepath.ToSlash(rel))
+		}
+	}
+	slices.Sort(paths)
+	if !slices.Equal(paths, []string{".", "a", "a/x"}) {
+		t.Fatalf("enrolled %v", paths)
+	}
+}
+
+// A backend that says only that a directory's entries changed, not
+// which, as kqueue does on iOS: a hints-only watch lists the directory
+// for new ones to enroll, so changes in them are hinted at too.
+func TestFileWatchHintsOnlyUnnamedChange(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "a"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	w, err := WatchFiles(context.Background(), dir, FileWatchOptions{Recursive: true, Debounce: -1, HintsOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+	if err := os.MkdirAll(filepath.Join(dir, "a", "new", "deeper"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	fileWatchTestNotice(t, w, "a", platform.FileWatchNotice{Kind: platform.FileWatchWrite})
+	if got := fileWatchTestHints(t, w); !slices.Equal(got, []string{"a"}) {
+		t.Fatalf("hints %v", got)
+	}
+	fileWatchTestNotice(t, w, "a/new/deeper", platform.FileWatchNotice{Kind: platform.FileWatchWrite})
+	if got := fileWatchTestHints(t, w); !slices.Equal(got, []string{"a/new/deeper"}) {
 		t.Fatalf("hints %v", got)
 	}
 }
