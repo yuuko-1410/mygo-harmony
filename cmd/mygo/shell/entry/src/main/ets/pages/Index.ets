@@ -31,12 +31,7 @@ struct Index {
   @State inputText: string = '';
   private drawnAt: number = 0;
 
-  // The window this instance draws: the app's own is 0, and a window of its
-  // own carries its id in the storage its instance loaded the page with.
-  private mygoWindow: number = 0;
-
   aboutToAppear(): void {
-    this.mygoWindow = LocalStorage.getShared().get<number>('mygoWindow') ?? 0;
     host.send = (buf: Uint8Array): void => {
       native.event(buf);
     };
@@ -146,25 +141,10 @@ struct Index {
       // the module too: a surface's touch is the app's, and ArkUI's onTouch
       // does not see it.
       if (!this.webVisible) {
-        XComponent({ id: this.mygoWindow === 0 ? 'mygo' : `mygo-${this.mygoWindow}`,
-          type: XComponentType.SURFACE, libraryname: 'entry' })
+        XComponent({ id: 'mygo', type: XComponentType.SURFACE, libraryname: 'entry' })
           .width('100%')
           .height('100%')
           .onLoad(() => {
-            if (this.mygoWindow !== 0) {
-              // A window of its own draws with this page's component, and
-              // its callbacks live in this instance's VM: Go runs in the
-              // instance that started it.
-              native.bind(this.mygoWindow,
-                (id: number, handle: number, width: number, height: number, scale: number): void => {
-                  host.surface(id, handle, width, height, scale === 1 ? host.scale : scale);
-                },
-                (id: number, phase: string, x: number, y: number): void => {
-                  host.touchPixels(id, phase, x, y);
-                });
-              native.event(Event.active(true));
-              return;
-            }
             if (started) {
               return;
             }

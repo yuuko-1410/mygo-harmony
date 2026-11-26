@@ -20,7 +20,6 @@
       {
         "name": "EntryAbility",
         "srcEntry": "./ets/entryability/EntryAbility.ets",
-          "launchType": "multiton",
         "description": "$string:EntryAbility_desc",
         "icon": "$media:foreground",
         "label": "$string:EntryAbility_label",

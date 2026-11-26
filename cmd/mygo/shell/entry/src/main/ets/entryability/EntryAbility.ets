@@ -20,11 +20,7 @@ import { window } from '@kit.ArkUI';
 const DOMAIN = 0x0000;
 
 export default class EntryAbility extends UIAbility {
-  private mygoWindow: number = 0;
-
   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
-    const w = want.parameters?.mygoWindow;
-    this.mygoWindow = typeof w === 'number' ? w : 0;
     try {
       this.context.getApplicationContext().setColorMode(ConfigurationConstant.ColorMode.COLOR_MODE_NOT_SET);
     } catch (err) {
@@ -42,11 +38,7 @@ export default class EntryAbility extends UIAbility {
     // Main window is created, set main page for this ability
     hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onWindowStageCreate');
 
-    // The storage is the instance's: AppStorage is the application's, and a
-    // window that starts another would put its own id in it.
-    const storage = new LocalStorage();
-    storage.setOrCreate('mygoWindow', this.mygoWindow);
-    windowStage.loadContent('pages/Index', storage, (err) => {
+    windowStage.loadContent('pages/Index', (err) => {
       if (err.code) {
         hilog.error(DOMAIN, 'testTag', 'Failed to load the content. Cause: %{public}s', JSON.stringify(err));
         return;
