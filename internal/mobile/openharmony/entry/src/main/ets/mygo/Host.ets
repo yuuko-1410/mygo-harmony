@@ -1294,6 +1294,14 @@ export class Host extends HostStubs {
   hideMenu(c: HideMenuCall): void {
   }
 
+  setOrientations(c: SetOrientationsCall): void {
+    // A 2in1 turns as its user turns it, and the platform's lock is the
+    // app's to ask of its ability: the mask is kept, and nothing turns.
+    this.orientations = c.mask;
+  }
+
+  private orientations: number = 0;
+
   setBackAvailable(c: SetBackAvailableCall): void {
     this.backAvailable = c.on;
   }
