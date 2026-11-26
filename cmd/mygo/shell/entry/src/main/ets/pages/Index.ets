@@ -28,6 +28,10 @@ struct Index {
   @State inputHeight: number = 0;
   @State inputText: string = '';
   private drawnAt: number = 0;
+  // The window's own size in its units, which its pixels are measured
+  // against: the display's density is not the window's on a 2in1.
+  private rootWidth: number = 0;
+  private rootHeight: number = 0;
 
   aboutToAppear(): void {
     host.send = (buf: Uint8Array): void => {
@@ -95,6 +99,12 @@ struct Index {
       const bottom = Math.max(bars.bottomRect.height, keyboard.bottomRect.height);
       console.info(`mygo: window ${rect.width}x${rect.height}, ` +
         `bars ${top},${left},${bottom},${right}, keyboard ${keyboard.bottomRect.height}`);
+      if (this.rootWidth > 0) {
+        // The window's pixels over the page's units: what a finger's place
+        // and the surface's size are measured in. The display's density is
+        // another number on a window that is not the screen.
+        host.scale = rect.width / this.rootWidth;
+      }
       host.sizeChanged(rect.width, rect.height,
         [top, left, bottom, right, keyboard.bottomRect.height]);
     } catch (e) {
@@ -136,6 +146,17 @@ struct Index {
             // a second one closes a channel twice.
             native.event(Event.active(true));
           })
+          // A wheel or a trackpad over the surface: ArkUI's own axes, which a
+          // surface's touch does not carry.
+          .onAxisEvent((event: AxisEvent) => {
+            if (event.action !== AxisAction.UPDATE) {
+              return;
+            }
+            // The wheel's place is in the window's pixels, as a finger's is.
+            const scale = host.scale > 0 ? host.scale : 1;
+            host.wheel((event.displayX ?? 0) / scale, (event.displayY ?? 0) / scale,
+              event.axisHorizontal ?? 0, event.axisVertical ?? 0);
+          })
       }
 
       // The page Go shows, in the host's web view.
@@ -144,14 +165,6 @@ struct Index {
         .height('100%')
         .javaScriptAccess(true)
         .opacity(this.webVisible ? 1 : 0)
-        // A wheel or a trackpad over the surface: ArkUI's own axes, which a
-        // surface's touch does not carry.
-        .onAxisEvent((event: AxisEvent) => {
-          if (event.action !== AxisAction.UPDATE) {
-            return;
-          }
-          host.scroll(event.axisHorizontal ?? 0, event.axisVertical ?? 0);
-        })
         .onPageBegin((event: OnPageBeginEvent) => {
           host.webBegan(host.webId, event.url);
         })
@@ -199,5 +212,9 @@ struct Index {
     .width('100%')
     .height('100%')
     .backgroundColor(this.windowColor)
+    .onAreaChange((_old: Area, area: Area) => {
+      this.rootWidth = area.width as number;
+      this.rootHeight = area.height as number;
+    })
   }
 }

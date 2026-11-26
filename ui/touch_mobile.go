@@ -1,4 +1,4 @@
-//go:build ios || android || js
+//go:build ios || android || js || openharmony
 
 package ui
 

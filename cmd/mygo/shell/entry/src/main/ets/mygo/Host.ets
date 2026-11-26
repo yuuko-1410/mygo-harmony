@@ -1429,12 +1429,24 @@ export class Host extends HostStubs {
     }
   }
 
-  // scroll is a wheel or a trackpad over the surface: DIPs, precise, which
-  // a list's momentum takes as such.
+  // scroll is a wheel or a trackpad over the surface, at a place of the
+  // window: what the pointer is over is what scrolls.
   scroll(dx: number, dy: number): void {
+    this.scrollAt(0, 0, dx, dy);
+  }
+
+  scrollAt(x: number, y: number, dx: number, dy: number): void {
     if (this.windowId !== 0) {
-      this.send(Event.scroll(this.windowId, 0, 0, dx, dy, true, 'changed'));
+      // Not precise: a wheel's notches glide, which ui gives them as a
+      // browser does — a little physics of its own — while a trackpad's
+      // small moves follow the fingers as they come.
+      this.send(Event.scroll(this.windowId, x, y, dx, dy, false, 'changed'));
     }
+  }
+
+  // wheel is ArkUI's axes, in the window's own units.
+  wheel(x: number, y: number, dx: number, dy: number): void {
+    this.scrollAt(x, y, dx, dy);
   }
 
   // tick runs at the display's refreshes: a frame Go asked for, or none.
