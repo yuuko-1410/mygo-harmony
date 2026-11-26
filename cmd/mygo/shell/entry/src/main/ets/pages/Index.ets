@@ -144,6 +144,14 @@ struct Index {
         .height('100%')
         .javaScriptAccess(true)
         .opacity(this.webVisible ? 1 : 0)
+        // A wheel or a trackpad over the surface: ArkUI's own axes, which a
+        // surface's touch does not carry.
+        .onAxisEvent((event: AxisEvent) => {
+          if (event.action !== AxisAction.UPDATE) {
+            return;
+          }
+          host.scroll(event.axisHorizontal ?? 0, event.axisVertical ?? 0);
+        })
         .onPageBegin((event: OnPageBeginEvent) => {
           host.webBegan(host.webId, event.url);
         })

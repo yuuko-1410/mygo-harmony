@@ -1118,6 +1118,9 @@ export class Host extends HostStubs {
   closeTabs(c: CloseTabsCall): void {
   }
 
+  // A page that a surface pushes is a window of its own, and this host
+  // shows one window: the stack is kept as Go asks, and the pages Go makes
+  // show in this window's web view as they are placed.
   pushWindow(c: PushWindowCall): void {
   }
 
@@ -1148,6 +1151,7 @@ export class Host extends HostStubs {
 
   audioOpen(c: AudioOpenCall): AudioOpenReply {
     const r = new AudioOpenReply();
+    this.audioRate = c.rate;
     try {
       const options: audio.AudioRendererOptions = {
         streamInfo: {
@@ -1163,9 +1167,13 @@ export class Host extends HostStubs {
       };
       audio.createAudioRenderer(options).then((renderer: audio.AudioRenderer) => {
         this.renderer = renderer;
-        renderer.start();
+        renderer.start().then(() => {
+          this.flushAudio();
+        }).catch((e: BusinessError) => {
+          console.error(`mygo: audio start: ${e.message}`);
+        });
       }).catch((e: BusinessError) => {
-        console.error(`mygo: audio: ${e.message}`);
+        console.error(`mygo: audio open: ${e.message}`);
       });
     } catch (e) {
       r.error = `${e}`;
@@ -1173,20 +1181,50 @@ export class Host extends HostStubs {
     return r;
   }
 
+  // The renderer comes a moment after the call, and Go writes as it calls:
+  // the samples wait here until it does.
+  private audioRate: number = 44100;
+  private audioPending: Uint8Array[] = [];
+
   audioWrite(c: AudioWriteCall): AudioWriteReply {
     const r = new AudioWriteReply();
+    const samples = c.samples;
     if (this.renderer === null) {
-      return r;  // not made yet: the samples are dropped, not waited for
+      // Half a second at most, then the oldest goes: a player that writes
+      // faster than the output opens is not to grow without bound.
+      this.audioPending.push(samples);
+      const limit = Math.max(1, Math.floor(this.audioRate / 60));
+      while (this.audioPending.length > limit) {
+        this.audioPending.shift();
+      }
+      return r;
     }
-    this.renderer.write(c.samples.buffer.slice(0) as ArrayBuffer).catch((e: BusinessError) => {
-      console.error(`mygo: audio: ${e.message}`);
-    });
+    this.writeAudio(samples);
     return r;
+  }
+
+  private flushAudio(): void {
+    const pending = this.audioPending;
+    this.audioPending = [];
+    for (const samples of pending) {
+      this.writeAudio(samples);
+    }
+  }
+
+  private writeAudio(samples: Uint8Array): void {
+    const renderer = this.renderer;
+    if (renderer === null || samples.length === 0) {
+      return;
+    }
+    renderer.write(samples.buffer.slice(0) as ArrayBuffer).catch((e: BusinessError) => {
+      console.error(`mygo: audio write: ${e.message}`);
+    });
   }
 
   audioClose(): AudioCloseReply {
     const r = new AudioCloseReply();
     const renderer = this.renderer;
+    this.audioPending = [];
     if (renderer !== null) {
       this.renderer = null;
       renderer.stop().then(() => {
@@ -1385,7 +1423,17 @@ export class Host extends HostStubs {
 
   touch(x: number, y: number, phase: string): void {
     if (this.windowId !== 0) {
-      this.send(Event.touch(this.windowId, 0, phase, 'touch', x, y, 1, 0, 0));
+      // Seconds, as Go measures a tap's double and a finger's speed.
+      const now = Date.now() / 1000;
+      this.send(Event.touch(this.windowId, 0, phase, 'touch', x, y, 1, 0, now));
+    }
+  }
+
+  // scroll is a wheel or a trackpad over the surface: DIPs, precise, which
+  // a list's momentum takes as such.
+  scroll(dx: number, dy: number): void {
+    if (this.windowId !== 0) {
+      this.send(Event.scroll(this.windowId, 0, 0, dx, dy, true, 'changed'));
     }
   }
 

@@ -35,6 +35,11 @@ func (cHost) call(msg []byte) []byte {
 	return b
 }
 
+// callHere is call: the host's calls all run on the JS thread, which is this
+// platform's UI thread, so a thread that must not wait for the UI thread —
+// the sound's — waits for the next drain instead of jumping the queue.
+func (cHost) callHere(msg []byte) []byte { return cHost{}.call(msg) }
+
 func (cHost) post() { C.mygo_ohos_post() }
 
 // onUIThread reports whether this is the thread the host's views live on:

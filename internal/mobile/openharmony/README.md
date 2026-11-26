@@ -130,6 +130,14 @@ takes the first typeface that really maps the rune (a check, not a hope).
   after its delete;
 - `SetTitle`, through the window's own title: no error, the bar's text
   unverified from a terminal;
+- the sound: `AudioOpen`, `AudioWrite` and `AudioClose` are an
+  `audio.AudioRenderer` (stereo, float32), with the samples Go writes before
+  it is made kept and played as it comes; `audio/output_mobile.go` is what
+  Go's player takes on this platform now, not an output of nothing;
+- the wheel: a trackpad's or a mouse's axes come through ArkUI's
+  `onAxisEvent` — a surface's own touch never carries them — and go to Go as
+  `Scroll`, precise; a finger's events carry their time, which a fling and a
+  double tap are made of;
 - the small calls of the system: `KeepAwake` (`setWindowKeepScreenOn`),
   `SetSystemBars` (the bars' icon colour, or hiding them), `Haptic`
   (the vibrator), `NetworkStatus` and the clipboard. The clipboard is read
