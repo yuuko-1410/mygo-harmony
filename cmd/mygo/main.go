@@ -32,6 +32,8 @@ Commands:
 	build                build production apps (a .app and a .dmg on macOS)
 	native <command>     make, check, call and build native modules in Swift,
 	                     Kotlin, Rust or Zig, experimental (mygo native help)
+	ohos <command>       build a MyGo app for OpenHarmony (HarmonyOS) and run it
+	                     on a device (mygo ohos help)
 	keygen               create the key pair that signs updates
 	devices              list the simulators, emulators and devices mygo dev -device takes
 	publish              upload a build to the App Store or Google Play
@@ -82,6 +84,8 @@ func main() {
 		err = runI18n(args)
 	case "build":
 		err = runBuild(args)
+	case "ohos":
+		err = runOhos(args)
 	case "native":
 		err = runNative(args)
 	case "doctor":

@@ -137,6 +137,10 @@ func (s *devSession) buildAndLaunchMobile(ctx context.Context, t *task, running 
 		if app, err = s.buildAndroidDev(ctx, c, dc, t, opts, stage); err != nil {
 			return nil, sum, err
 		}
+	case "ohos":
+		if app, err = s.buildOhosDev(ctx, c, dc, t, opts, stage); err != nil {
+			return nil, sum, err
+		}
 	}
 	h := sha256.New()
 	if err := hashTree(h, app); err != nil {
@@ -323,6 +327,11 @@ func (s *devSession) launchMobile(dc *Config, app string) (*devProcess, error) {
 	case s.device.platform == "android":
 		var err error
 		if cmd, stop, err = s.launchAndroid(dc, app, env); err != nil {
+			return nil, err
+		}
+	case s.device.platform == "ohos":
+		var err error
+		if cmd, stop, err = s.launchOhos(dc, app, env); err != nil {
 			return nil, err
 		}
 	}

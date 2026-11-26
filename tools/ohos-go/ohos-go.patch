@@ -1,0 +1,53 @@
+diff --git a/src/cmd/link/internal/ld/outbuf_mmap.go b/src/cmd/link/internal/ld/outbuf_mmap.go
+index e92a06dc..0721c488 100644
+--- a/src/cmd/link/internal/ld/outbuf_mmap.go
++++ b/src/cmd/link/internal/ld/outbuf_mmap.go
+@@ -28,7 +28,7 @@ func (out *OutBuf) Mmap(filesize uint64) (err error) {
+ 		// Some file systems do not support fallocate. We ignore that error as linking
+ 		// can still take place, but you might SIGBUS when you write to the mmapped
+ 		// area.
+-		if err != syscall.ENOTSUP && err != syscall.EOPNOTSUPP && err != syscall.EPERM && err != errNoFallocate {
++		if err != syscall.ENOTSUP && err != syscall.EOPNOTSUPP && err != syscall.EPERM && err != syscall.EACCES && err != errNoFallocate {
+ 			return err
+ 		}
+ 	}
+diff --git a/src/mime/type_openharmony.go b/src/mime/type_openharmony.go
+index 9a904853..2e560f7a 100644
+--- a/src/mime/type_openharmony.go
++++ b/src/mime/type_openharmony.go
+@@ -1,3 +1,5 @@
++//go:build openharmony
++
+ // Copyright 2024 The Go Authors. All rights reserved.
+ // Use of this source code is governed by a BSD-style
+ // license that can be found in the LICENSE file.
+diff --git a/src/runtime/rt0_openharmony_amd64.s b/src/runtime/rt0_openharmony_amd64.s
+index 7f797ef8..4b160f0b 100644
+--- a/src/runtime/rt0_openharmony_amd64.s
++++ b/src/runtime/rt0_openharmony_amd64.s
+@@ -1,3 +1,5 @@
++//go:build openharmony
++
+ // Copyright 2024 The Go Authors. All rights reserved.
+ // Use of this source code is governed by a BSD-style
+ // license that can be found in the LICENSE file.
+diff --git a/src/runtime/rt0_openharmony_arm64.s b/src/runtime/rt0_openharmony_arm64.s
+index 504af53d..df6e66ed 100644
+--- a/src/runtime/rt0_openharmony_arm64.s
++++ b/src/runtime/rt0_openharmony_arm64.s
+@@ -1,3 +1,5 @@
++//go:build openharmony
++
+ // Copyright 2024 The Go Authors. All rights reserved.
+ // Use of this source code is governed by a BSD-style
+ // license that can be found in the LICENSE file.
+diff --git a/src/time/zoneinfo_openharmony.go b/src/time/zoneinfo_openharmony.go
+index 782a2a33..f9615166 100644
+--- a/src/time/zoneinfo_openharmony.go
++++ b/src/time/zoneinfo_openharmony.go
+@@ -1,3 +1,5 @@
++//go:build openharmony
++
+ // Copyright 2024 The Go Authors. All rights reserved.
+ // Use of this source code is governed by a BSD-style
+ // license that can be found in the LICENSE file.

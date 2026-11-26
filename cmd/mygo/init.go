@@ -50,7 +50,7 @@ func runInit(args []string) error {
 	flags := newFlags("init", "[flags] <dir>", "Creates a new MyGo project. The web template has a TypeScript frontend built\nwith Vite: Bun installs its dependencies, the mygo-cli package among them,\nand runs its scripts, bun run dev and bun run build. The native template\nshows a user interface MyGo draws itself, written in Go with package ui:\nthe module has the CLI as a tool, for go tool mygo dev and go tool mygo\nbuild.")
 	name := flags.String("name", "", "application name (default: directory name)")
 	module := flags.String("module", "", "Go module path (default: directory name)")
-	local := flags.String("mygo", "", "path to a local checkout of MyGo to use via a replace directive")
+	local := flags.String("mygo", "", "path to a local checkout of MyGo to use via a replace directive (default: the checkout this mygo was built from, when it has the openharmony backend)")
 	tmpl := flags.String("template", webTemplate, "the project: web (a TypeScript frontend) or native (native UI in Go)")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -66,6 +66,15 @@ func runInit(args []string) error {
 	if err != nil {
 		return err
 	}
+	// The tool built from a checkout pins that checkout: it is the MyGo with
+	// the platforms this one has, OpenHarmony's among them.
+	explicit := *local != ""
+	if !explicit {
+		if src := ohosSource(); src != "" {
+			*local = src
+			logf("Using the MyGo of this checkout: %s", src)
+		}
+	}
 	if *tmpl == nativeTemplate {
 		return initNative(dir, data, *local)
 	}
@@ -79,14 +88,21 @@ func runInit(args []string) error {
 		}
 		runtime := filepath.Join(checkout, "packages", "runtime")
 		if _, err := os.Stat(filepath.Join(runtime, "dist", "index.js")); err != nil {
-			return fmt.Errorf("the packages of %s are not built: run bun install && bun run build there first", checkout)
+			if explicit {
+				return fmt.Errorf("the packages of %s are not built: run bun install && bun run build there first", checkout)
+			}
+			// The web template needs the checkout's packages built, and this
+			// checkout's are not: the published module has them.
+			warnf("The packages of %s are not built: this project takes MyGo from the module proxy, not from the checkout", checkout)
+			*local = ""
+		} else {
+			data.Runtime = "file:" + runtime
+			data.CLI, data.Mygo = "", "go run github.com/egoist/mygo/cmd/mygo"
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				return err
+			}
+			data.ConfigImport = moduleSpecifier(dir, filepath.Join(checkout, "packages", "cli", "index.js"))
 		}
-		data.Runtime = "file:" + runtime
-		data.CLI, data.Mygo = "", "go run github.com/egoist/mygo/cmd/mygo"
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return err
-		}
-		data.ConfigImport = moduleSpecifier(dir, filepath.Join(checkout, "packages", "cli", "index.js"))
 	}
 
 	logf("Creating %s", dir)
