@@ -85,11 +85,15 @@ takes the first typeface that really maps the rune (a check, not a hope).
 - the keyboard: `SetTextInput` places a see-through `TextInput` over what Go
   draws, focuses it, and the keys it takes go back as `TextReplace` and
   `TextCommand` — a field is typed in, and what Go draws says what it holds;
-- pages inside a surface: `PlaceViews` gives each child window's place, and
-  the host shows it in a window of its own (`windowStage.createSubWindow`),
-  moved and sized there, with the child's page loading through
-  `pages/Embedded` — a surface is a layer above ArkUI's, so a web view
-  cannot sit on it in the same window. What a child window is on this
+- pages inside a surface: `PlaceViews` names the page the surface shows, and
+  the host shows it in this window, over the surface, which goes while it
+  does — one window, as a phone's. A window of its own
+  (`windowStage.createSubWindow`) works, and was what this did first, but a
+  child window has no bar, no place in the task switcher and no focus of its
+  own on this platform, so the page could not be moved, closed or typed in.
+  The cost of one window: the page fills the window rather than the place Go
+  gave, since a surface is a layer above ArkUI's and nothing of ArkUI's can
+  be over it. What a child window is on this
   platform, and what it is not: `setWindowDecorVisible`,
   `setWindowTitleMoveEnabled`, `setWindowFocusable` and `setWindowLimits`
   compile and are set, but a child window still shows no bar of its own, is

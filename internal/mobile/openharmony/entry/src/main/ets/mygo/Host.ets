@@ -799,29 +799,18 @@ export class Host extends HostStubs {
 
   // place puts a child window's page at x, y, w, h of the screen.
   private place(id: number, x: number, y: number, w: number, h: number): void {
-    const sub = this.subs.get(id);
-    if (this.ctx === undefined) {
-      return;
+    // One window, as a phone's. A window of its own would be one of the
+    // system's: no bar of its own, no place in the task switcher, no focus
+    // of its own — see NOTES.md. So the page shows in this window, over the
+    // surface, which goes while it does.
+    this.webId = id;
+    this.webVisible = true;
+    const src = this.webSources.get(id);
+    if (src !== undefined && src !== this.webSrc) {
+      this.webSrc = src;
+      this.webHTML = '';
+      this.applyWeb();
     }
-    if (sub === undefined) {
-      this.pendingPlaces.set(id, [x, y, w, h]);
-      if (!this.creating.has(id)) {
-        this.creating.add(id);
-        this.makeSub(id);
-      }
-      return;
-    }
-    const last = this.placedAt.get(id);
-    if (last !== undefined && last[0] === x && last[1] === y && last[2] === w && last[3] === h) {
-      return;  // the same place as last time: a person may have moved it
-    }
-    this.placedAt.set(id, [x, y, w, h]);
-    sub.moveWindowTo(x, y).catch((e: BusinessError) => {
-      console.error(`mygo: place ${id}: ${e.message}`);
-    });
-    sub.resize(w, h).catch((e: BusinessError) => {
-      console.error(`mygo: size ${id}: ${e.message}`);
-    });
   }
 
   // makeSub makes the window a page of the surface shows in, once.
