@@ -35,6 +35,9 @@ struct Index {
     host.send = (buf: Uint8Array): void => {
       native.event(buf);
     };
+    host.bindWindow = (id: number): void => {
+      native.bind(id);
+    };
     host.ask = (buf: Uint8Array): Uint8Array | null => {
       const reply: ArrayBuffer | undefined = native.event(buf) as ArrayBuffer | undefined;
       return reply === undefined ? null : new Uint8Array(reply);
@@ -157,13 +160,9 @@ struct Index {
               (id: number, phase: string, x: number, y: number): void => {
                 host.touchPixels(id, phase, x, y);
               });
-            // The app's own window draws with this component: Go makes it
-            // first, and the window it makes is the one this page shows.
-            setTimeout(() => {
-              if (host.mainWindowId !== 0) {
-                native.bind(host.mainWindowId);
-              }
-            }, 100);
+            // The page's component draws for the app's own window, which Go
+            // names when it makes it (createWindow binds it then).
+            native.bind(0);
             // Not Event.ready: the backend posts that itself (postReady), and
             // a second one closes a channel twice.
             native.event(Event.active(true));

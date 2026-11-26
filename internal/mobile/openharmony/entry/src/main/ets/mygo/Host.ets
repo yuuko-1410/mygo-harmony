@@ -103,6 +103,8 @@ export class Host extends HostStubs {
   fps: number = 0;
   // Sends an event to Go: the page's native.event.
   send: (buf: Uint8Array) => void = (buf: Uint8Array) => {};
+  // bindWindow has the component the page draws with draw for window id.
+  bindWindow: (id: number) => void = (id: number): void => {};
   // ask sends an event Go answers, and reads its reply.
   ask: (buf: Uint8Array) => Uint8Array | null = (buf: Uint8Array): Uint8Array | null => null;
   // mainWindow is the window Go made first: the app's own, as Android's is
@@ -135,8 +137,13 @@ export class Host extends HostStubs {
     // The first window draws on the surface until Go shows another: a
     // window made behind the one that shows draws nothing, and taking the
     // surface for it leaves the one that shows with none.
-    if (this.handle !== 0 && c.id === this.mainWindowId) {
-      this.windowSize();
+    if (c.id === this.mainWindowId) {
+      // The app's own window draws with the page's component, which was
+      // made before Go named the window.
+      this.bindWindow(c.id);
+      if (this.handle !== 0) {
+        this.windowSize();
+      }
     }
     return r;
   }

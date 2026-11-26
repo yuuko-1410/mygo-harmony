@@ -369,6 +369,23 @@ napi_value bind(napi_env env, napi_callback_info info) {
     int32_t id = 0;
     napi_get_value_int32(env, argv[0], &id);
     if (g_unbound.empty()) {
+        // The page bound its component before Go named the window (to 0):
+        // it draws for this one now.
+        for (auto &w : g_windows) {
+            if (w.second.component != nullptr && w.first <= 0) {
+                g_windows[id] = w.second;
+                g_windows.erase(w.first);
+                if (g_windows[id].handle != 0) {
+                    uint64_t sw = 0;
+                    uint64_t sh = 0;
+                    OH_NativeXComponent_GetXComponentSize(g_windows[id].component,
+                                                          reinterpret_cast<void *>(g_windows[id].handle), &sw, &sh);
+                    callSurface(id, g_windows[id].handle, static_cast<double>(sw), static_cast<double>(sh), 1);
+                }
+                LOGI("MYGO window %{public}d rebound", static_cast<int>(id));
+                return nullptr;
+            }
+        }
         LOGE("MYGO bind %{public}d: no component", static_cast<int>(id));
         return nullptr;
     }
