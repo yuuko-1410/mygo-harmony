@@ -27,10 +27,23 @@ func hostLog(isErr bool, line []byte) {
 	C.mygo_ohos_log(e, (*C.uint8_t)(unsafe.Pointer(unsafe.SliceData(line))), C.size_t(len(line)))
 }
 
-// dupOutput makes the descriptor of old write to w, for the runtime's own
-// writes (panics) to go to the log too.
+// dupOutput makes the descriptor of old write to w, for the app's own
+// writes — the web view logs to the standard error too, thousands of lines
+// of it — to reach the log.
+//
+// The pipe is non-blocking and as big as the system allows: a writer that
+// finds it full gets an error and goes on, where a blocking pipe holds the
+// thread that wrote still — the UI thread, in the middle of a gesture
+// (PAC_LogMessage::Flush blocked in write()), which is a window that answers
+// nothing.
 func dupOutput(w, old *os.File) error {
-	return syscall.Dup3(int(w.Fd()), int(old.Fd()), 0)
+	fd := int(w.Fd())
+	// F_SETPIPE_SZ: 1031 on Linux, and on this one.
+	syscall.Syscall(syscall.SYS_FCNTL, uintptr(fd), 1031, 1<<20)
+	if err := syscall.SetNonblock(fd, true); err != nil {
+		return err
+	}
+	return syscall.Dup3(fd, int(old.Fd()), 0)
 }
 
 // keepCrashOutput has the runtime report a crash, all of it, before the app
