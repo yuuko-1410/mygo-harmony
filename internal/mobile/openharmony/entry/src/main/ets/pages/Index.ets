@@ -167,6 +167,9 @@ struct Index {
         .height('100%')
         .javaScriptAccess(true)
         .opacity(this.webVisible ? 1 : 0)
+        // A web view of nothing still takes the touches over it, and the
+        // surface under it, which is the app's, never sees them go down.
+        .hitTestBehavior(this.webVisible ? HitTestMode.Default : HitTestMode.None)
         .onPageBegin((event: OnPageBeginEvent) => {
           host.webBegan(host.webId, event.url);
         })
