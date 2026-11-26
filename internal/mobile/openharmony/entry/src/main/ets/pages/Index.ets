@@ -185,9 +185,14 @@ struct Index {
       TextInput({ text: this.inputText })
         .id('mygoInput')
         .type(InputType.Normal)
-        .position({ x: this.inputActive ? this.inputX : -2000, y: this.inputY })
-        .width(this.inputActive && this.inputWidth > 0 ? this.inputWidth : 200)
-        .height(this.inputActive && this.inputHeight > 0 ? this.inputHeight : 40)
+        // Out of the way and a point big while Go edits no text: a field
+        // that is invisible still takes the touches over it, and the app
+        // under it would not see them.
+        .position({ x: this.inputActive ? this.inputX : -4000, y: this.inputActive ? this.inputY : -4000 })
+        .width(this.inputActive && this.inputWidth > 0 ? this.inputWidth : 1)
+        .height(this.inputActive && this.inputHeight > 0 ? this.inputHeight : 1)
+        .enabled(this.inputActive)
+        .hitTestBehavior(this.inputActive ? HitTestMode.Default : HitTestMode.None)
         .backgroundColor('#00000000')
         // The app draws the text and the caret: the field only takes the
         // keys, and shows where it is being edited.
