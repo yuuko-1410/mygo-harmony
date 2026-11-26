@@ -235,8 +235,8 @@ void DispatchTouchEvent(OH_NativeXComponent *component, void *window) {
     }
     const OH_NativeXComponent_TouchPoint &p = te.touchPoints[0];
     if (te.type != OH_NATIVEXCOMPONENT_MOVE) {
-        LOGI("MYGO touch %{public}s at %{public}d,%{public}d", phase, static_cast<int>(p.x),
-             static_cast<int>(p.y));
+        LOGI("MYGO touch w%{public}d %{public}s at %{public}d,%{public}d", windowOf(component), phase,
+             static_cast<int>(p.x), static_cast<int>(p.y));
     }
     napi_handle_scope scope;
     if (napi_open_handle_scope(g_env, &scope) != napi_ok) {

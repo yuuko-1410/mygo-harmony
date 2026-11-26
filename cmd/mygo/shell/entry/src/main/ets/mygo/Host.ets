@@ -233,6 +233,12 @@ export class Host extends HostStubs {
 
   closeWindow(c: CloseWindowCall): void {
     this.surfaceWindows.delete(c.id);
+    // The window that closed took the input with it: the app's own window
+    // draws with its component still, and says so again.
+    if (this.mainWindowId !== 0) {
+      this.windowId = this.mainWindowId;
+      this.bindWindow(this.mainWindowId);
+    }
     const sub = this.subs.get(c.id);
     if (sub === undefined) {
       return;
