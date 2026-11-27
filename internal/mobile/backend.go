@@ -148,18 +148,7 @@ func (b *Backend) Init(h platform.AppHandler, _ platform.AppOptions) error {
 	b.call(&wire.Theme{}, &t)
 	b.dark = t.Dark
 	// Started for a background task: no frames until the user opens it.
-	// A phone has no home directory of its own for the app to keep things
-	// in, so os.UserConfigDir and os.UserCacheDir find none, and what the
-	// app saves — its settings, its login, where playback was left — is
-	// written nowhere. The host's own directories stand in.
-	if info := b.appInfo(); info.FilesDir != "" {
-		if os.Getenv("XDG_CONFIG_HOME") == "" {
-			os.Setenv("XDG_CONFIG_HOME", info.FilesDir)
-		}
-		if info.CacheDir != "" && os.Getenv("XDG_CACHE_HOME") == "" {
-			os.Setenv("XDG_CACHE_HOME", info.CacheDir)
-		}
-	}
+	setHomeDirs(b.appInfo())
 	b.background = b.appInfo().Background
 	b.startedHidden = b.background
 	return nil

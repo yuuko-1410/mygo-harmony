@@ -11,6 +11,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/egoist/mygo/internal/mobile/openharmony"
 )
 
 // The native shell of a HAP: the ArkTS page and its XComponents, the C++ that
@@ -20,6 +22,29 @@ import (
 //
 //go:embed all:shell
 var shellFS embed.FS
+
+// writeHost copies the host's own files — the pages, the module they import
+// and the C++ — over the shell's, so that there is one copy of them: the one
+// in internal/mobile/openharmony, which go generate keeps current.
+func writeHost(dest string) error {
+	return fs.WalkDir(openharmony.Entry, "entry", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dest, path)
+		if d.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		data, err := fs.ReadFile(openharmony.Entry, path)
+		if err != nil {
+			return err
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return err
+		}
+		return os.WriteFile(target, data, 0o644)
+	})
+}
 
 // hapShell is what every HAP project has, by which one is known.
 const hapShell = "entry/src/main/cpp/CMakeLists.txt"
@@ -50,6 +75,10 @@ then build and run the app:
 // the files that changed are written, the others left as they are, so that
 // the signing material of a project built before stays (a signed build).
 func ohosWriteShell(dest, bundle, label, version, icon string) error {
+	// The host is one copy, of the package that holds it: written last, so
+	// that the shell's scaffolding and the host's files are one project.
+	defer writeHost(dest)
+
 	root, err := fs.Sub(shellFS, "shell")
 	if err != nil {
 		return err
