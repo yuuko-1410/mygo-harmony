@@ -1759,7 +1759,7 @@ export class Host extends HostStubs {
         });
       }
     }
-: they run here,
+    // The windows of other instances queue their events: they run here,
     // where Go runs, at this frame.
     this.pump();
     this.readClipboard();
