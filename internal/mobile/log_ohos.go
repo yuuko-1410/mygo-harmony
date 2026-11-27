@@ -13,6 +13,7 @@ import "C"
 import (
 	"os"
 	"runtime/debug"
+	"strconv"
 	"syscall"
 	"unsafe"
 )
@@ -52,9 +53,19 @@ func dupOutput(w, old *os.File) error {
 // The descriptor the system gave the app takes it whole, as it exits.
 func keepCrashOutput() {
 	debug.SetTraceback("all")
-	if fd, err := syscall.Dup(2); err == nil {
-		f := os.NewFile(uintptr(fd), "stderr")
-		debug.SetCrashOutput(f, debug.CrashOptions{})
-		f.Close()
+	// To a file of the app's own: the descriptor the system gives is dropped
+	// when the app goes, and the report of a panic with it. The panic says
+	// what it was — a nil function, a stack — and that is what tells the fix.
+	dir := os.Getenv("XDG_CONFIG_HOME")
+	if dir == "" {
+		return
 	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return
+	}
+	f, err := os.Create(dir + "/crash-" + strconv.Itoa(os.Getpid()) + ".log")
+	if err != nil {
+		return
+	}
+	debug.SetCrashOutput(f, debug.CrashOptions{})
 }
