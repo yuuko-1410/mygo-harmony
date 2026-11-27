@@ -109,6 +109,9 @@ export class Host extends HostStubs {
   // pump takes the events the other windows queued, which wait for the
   // instance that runs Go.
   pump: () => void = (): void => {};
+  // audioDone is the renderer having taken the buffer Go wrote: its writer
+  // waits for this, which is what paces the player.
+  audioDone: () => void = (): void => {};
   // ask sends an event Go answers, and reads its reply.
   ask: (buf: Uint8Array) => Uint8Array | null = (buf: Uint8Array): Uint8Array | null => null;
   // mainWindow is the window Go made first: the app's own, as Android's is
@@ -1347,8 +1350,10 @@ export class Host extends HostStubs {
     const buf = samples.buffer.slice(0) as ArrayBuffer;
     this.audioQueue = this.audioQueue.then(() => {
       return renderer.write(buf).then(() => {
+        this.audioDone();
       }).catch((e: BusinessError) => {
         console.error(`mygo: audio write: ${e.message}`);
+        this.audioDone();
       });
     });
   }

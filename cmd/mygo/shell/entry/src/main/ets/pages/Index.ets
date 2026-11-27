@@ -43,6 +43,9 @@ struct Index {
     host.pump = (): void => {
       native.pump();
     };
+    host.audioDone = (): void => {
+      native.audioDone();
+    };
     host.bindWindow = (id: number): void => {
       native.bind(id);
     };

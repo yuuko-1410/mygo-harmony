@@ -54,6 +54,13 @@ napi_threadsafe_function g_relay = nullptr;  // events of other windows, for it
 // each other hold still.
 std::mutex g_pendingMu;
 std::deque<std::vector<uint8_t>> g_pendingEvents;
+// A sound written a buffer at a time: Go's writer waits here until the
+// renderer took the buffer it wrote (audioDone), as AudioTrack.write holds
+// the thread that wrote on Android — that wait is the output's pace.
+std::mutex g_audioMu;
+std::condition_variable g_audioCv;
+long g_audioDone = 0;
+
 // Whether Go is running on this thread now: an event that comes while it
 // does — a window of the app's is an instance of its own, on this same
 // thread — waits too, or Go would be entered twice and wait for itself.
@@ -313,6 +320,16 @@ void relayOnJS(napi_env, napi_value, void *, void *data) {
         c->done = true;
     }
     c->cv.notify_all();
+}
+
+// audioDone is the renderer having taken the buffer Go wrote.
+napi_value audioDone(napi_env, napi_callback_info) {
+    {
+        std::lock_guard<std::mutex> lock(g_audioMu);
+        g_audioDone++;
+    }
+    g_audioCv.notify_all();
+    return nullptr;
 }
 
 // pump runs the events the other windows queued, on the instance that runs
@@ -585,6 +602,7 @@ napi_value Init(napi_env env, napi_value exports) {
         {"start", nullptr, start, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"event", nullptr, event, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"pump", nullptr, pump, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"audioDone", nullptr, audioDone, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"drain", nullptr, drain, nullptr, nullptr, nullptr, napi_default, nullptr},
     };
     napi_define_properties(env, exports, sizeof(desc) / sizeof(desc[0]), desc);
@@ -611,11 +629,24 @@ extern "C" void mygo_ohos_call(uint8_t *msg, size_t len, uint8_t **reply, size_t
         if (napi_call_threadsafe_function(g_calls, &c, napi_tsfn_blocking) != napi_ok) {
             return;
         }
-        std::unique_lock<std::mutex> lock(c.mu);
-        if (!c.cv.wait_for(lock, std::chrono::seconds(2), [&c] { return c.done; })) {
-            LOGE("MYGO call %{public}d of %{public}d bytes waited 2s for the JS thread",
-                 len > 0 ? msg[0] : -1, static_cast<int>(len));
-            return;
+        long doneBefore = 0;
+        {
+            std::lock_guard<std::mutex> lock(g_audioMu);
+            doneBefore = g_audioDone;
+        }
+        {
+            std::unique_lock<std::mutex> lock(c.mu);
+            if (!c.cv.wait_for(lock, std::chrono::seconds(2), [&c] { return c.done; })) {
+                LOGE("MYGO call %{public}d of %{public}d bytes waited 2s for the JS thread",
+                     len > 0 ? msg[0] : -1, static_cast<int>(len));
+                return;
+            }
+        }
+        // AudioWrite (69): the samples are the renderer's once it took them,
+        // and the writer waits for that, which is what paces the player.
+        if (len > 0 && msg[0] == 69) {
+            std::unique_lock<std::mutex> lock(g_audioMu);
+            g_audioCv.wait_for(lock, std::chrono::seconds(1), [doneBefore] { return g_audioDone > doneBefore; });
         }
         if (c.out.empty()) {
             return;

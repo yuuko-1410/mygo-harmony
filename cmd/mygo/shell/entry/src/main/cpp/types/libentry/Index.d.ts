@@ -9,3 +9,4 @@ export const start: (dispatch: (buf: Uint8Array) => Uint8Array | null,
 export const event: (buf: Uint8Array) => ArrayBuffer | undefined;
 export const drain: () => void;
 export const pump: () => void;
+export const audioDone: () => void;
