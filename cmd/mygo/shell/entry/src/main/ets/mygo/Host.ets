@@ -115,6 +115,8 @@ export class Host extends HostStubs {
   // the Activity's.
   mainWindowId: number = 0;
   private wanted: boolean = false;
+  // The windows that asked for a frame, each for itself.
+  private wantedWindows: Set<number> = new Set();
   // The surface, which may come before the window Go asks for.
   private handle: number = 0;
   private width: number = 0;
@@ -1463,6 +1465,7 @@ export class Host extends HostStubs {
   // refresh brings it a Frame event.
   requestFrame(c: RequestFrameCall): void {
     this.wanted = true;
+    this.wantedWindows.add(this.windowForPage(c.id === 0 ? 0 : c.id));
   }
 
   appInfo(): AppInfoReply {
@@ -1531,18 +1534,21 @@ export class Host extends HostStubs {
       this.scaleOf.set(id, scale);
     }
     this.sizeOf.set(id, [width, height]);
+    this.handleOf.set(id, handle);
     if (id === this.windowId) {
       this.scale = scale;
       this.handle = handle;
       this.width = width;
       this.height = height;
-      this.windowSize();
     }
+    this.windowSizeFor(id);
   }
 
   // The surface each window draws into, its size and the pixels one of its
   // units is, which a finger's place is measured by.
   surfaceOf: Map<number, number> = new Map();
+  // The surface ArkUI made for each window, which the window's page knows.
+  handleOf: Map<number, number> = new Map();
   scaleOf: Map<number, number> = new Map();
   sizeOf: Map<number, [number, number]> = new Map();
   // The windows of the app's that draw with a surface of their own.
@@ -1575,15 +1581,23 @@ export class Host extends HostStubs {
   }
 
   private windowSize(): void {
-    const id = this.windowId;
-    if (id === 0 || this.handle === 0) {
+    this.windowSizeFor(this.windowId);
+  }
+
+  // windowSizeFor tells Go one window's size in DIPs, its scale and its
+  // insets: each window has a surface, a size and a scale of its own.
+  private windowSizeFor(id: number): void {
+    const handle = this.handleOf.get(id) ?? (id === this.windowId ? this.handle : 0);
+    const size = this.sizeOf.get(id) ?? [this.width, this.height];
+    const scale = this.scaleOf.get(id) ?? this.scale;
+    const s = scale > 0 ? scale : 1;
+    if (id === 0 || handle === 0 || size[0] <= 0) {
       return;
     }
-    const scale = this.scale > 0 ? this.scale : 1;
-    this.send(Event.surfaceChanged(id, this.handle, this.width, this.height, scale, 60));
-    this.send(Event.resized(id, this.width / scale, this.height / scale, scale,
-      this.insetTop / scale, this.insetLeft / scale, this.insetBottom / scale, this.insetRight / scale,
-      this.keyboard / scale));
+    this.send(Event.surfaceChanged(id, handle, size[0], size[1], s, 60));
+    this.send(Event.resized(id, size[0] / s, size[1] / s, s,
+      this.insetTop / s, this.insetLeft / s, this.insetBottom / s, this.insetRight / s,
+      this.keyboard / s));
   }
 
   // sizeChanged is the page telling what the system covers, in pixels.
@@ -1627,11 +1641,15 @@ export class Host extends HostStubs {
   }
 
   scrollAt(x: number, y: number, dx: number, dy: number): void {
-    if (this.windowId !== 0) {
+    this.scrollOf(this.windowId, x, y, dx, dy);
+  }
+
+  private scrollOf(id: number, x: number, y: number, dx: number, dy: number): void {
+    if (id !== 0) {
       // Not precise: a wheel's notches glide, which ui gives them as a
       // browser does — a little physics of its own — while a trackpad's
       // small moves follow the fingers as they come.
-      this.send(Event.scroll(this.windowId, x, y, dx, dy, false, 'changed'));
+      this.send(Event.scroll(id, x, y, dx, dy, false, 'changed'));
     }
   }
 
@@ -1649,10 +1667,7 @@ export class Host extends HostStubs {
   // wheelAt is a wheel over a window of the app's, which is not the one in
   // front of the others.
   wheelAt(id: number, x: number, y: number, dx: number, dy: number): void {
-    if (id === 0) {
-      return;
-    }
-    this.send(Event.scroll(id, x, y, dx, dy, false, 'changed'));
+    this.scrollOf(id, x, y, dx, dy);
   }
 
   // tick runs at the display's refreshes: a frame Go asked for, or none.
@@ -1661,9 +1676,14 @@ export class Host extends HostStubs {
     // where Go runs, at this frame.
     this.pump();
     this.readClipboard();
-    if (this.wanted && this.windowId !== 0) {
-      this.wanted = false;
-      this.send(Event.frame(this.windowId));
+    if (this.wantedWindows.size > 0) {
+      const ids = Array.from(this.wantedWindows);
+      this.wantedWindows.clear();
+      for (const id of ids) {
+        if (id !== 0) {
+          this.send(Event.frame(id));
+        }
+      }
     }
   }
 
