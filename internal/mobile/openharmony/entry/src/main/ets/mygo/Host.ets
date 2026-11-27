@@ -1640,6 +1640,12 @@ export class Host extends HostStubs {
     this.scrollAt(x, y, dx, dy);
   }
 
+  // windowForPage is the window a page draws: the app's own window is the one
+  // Go made first, and a window of its own says so itself.
+  windowForPage(pageId: number): number {
+    return pageId !== 0 ? pageId : this.mainWindowId;
+  }
+
   // wheelAt is a wheel over a window of the app's, which is not the one in
   // front of the others.
   wheelAt(id: number, x: number, y: number, dx: number, dy: number): void {

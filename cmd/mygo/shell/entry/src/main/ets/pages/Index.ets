@@ -197,8 +197,10 @@ struct Index {
               return;
             }
             // The wheel's place is in the window's pixels, as a finger's is.
-            const scale = host.scale > 0 ? host.scale : 1;
-            host.wheel((event.displayX ?? 0) / scale, (event.displayY ?? 0) / scale,
+            const windowId = host.windowForPage(this.mygoWindow);
+            const scale = host.scaleOf.get(windowId) ?? host.scale;
+            host.wheelAt(windowId, (event.displayX ?? 0) / (scale > 0 ? scale : 1),
+              (event.displayY ?? 0) / (scale > 0 ? scale : 1),
               event.axisHorizontal ?? 0, event.axisVertical ?? 0);
           })
       }
