@@ -165,7 +165,10 @@ export class Host extends HostStubs {
     if (this.handle !== 0) {
       this.windowSize();
     }
-    if (this.pendingWindows.has(c.id)) {
+    if (this.surfaceWindows.has(c.id)) {
+      // A window of the app's is an instance: one that is not made yet is
+      // started, and one that is (Settings opened again) is brought to the
+      // front by the same start, the instance keeping its key.
       this.pendingWindows.delete(c.id);
       this.startInstance(c.id);
       return;
@@ -192,7 +195,7 @@ export class Host extends HostStubs {
     ctx.startAbility({
       bundleName: ctx.abilityInfo.bundleName,
       abilityName: ctx.abilityInfo.name,
-      parameters: { mygoWindow: id },
+      parameters: { mygoWindow: id, instanceKey: `mygo-${id}` },
     }).catch((e: BusinessError) => {
       console.error(`mygo: window ${id}: ${e.code} ${e.message}`);
     });

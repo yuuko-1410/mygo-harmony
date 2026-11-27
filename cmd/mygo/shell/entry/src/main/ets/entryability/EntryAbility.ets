@@ -33,6 +33,26 @@ export default class EntryAbility extends UIAbility {
     hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onCreate');
   }
 
+  // The window this instance draws, brought to the front again: Go shows a
+  // window of its own that already exists (Settings opened twice), and the
+  // system hands the want to the instance that has it.
+  onNewWant(want: Want): void {
+    const stage = AppStorage.get<window.WindowStage>('windowStage');
+    if (stage === undefined) {
+      return;
+    }
+    try {
+      const main = stage.getMainWindowSync();
+      main.showWindow().then(() => {
+        hilog.info(DOMAIN, 'testTag', 'window %{public}d raised', this.mygoWindow);
+      }).catch((e: Object) => {
+        hilog.error(DOMAIN, 'testTag', 'raise failed: %{public}s', JSON.stringify(e));
+      });
+    } catch (e) {
+      hilog.error(DOMAIN, 'testTag', 'raise threw: %{public}s', JSON.stringify(e));
+    }
+  }
+
   onDestroy(): void {
     hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onDestroy');
   }
