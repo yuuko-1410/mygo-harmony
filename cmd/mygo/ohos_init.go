@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/egoist/mygo/internal/mobile/openharmony"
 )
 
 // The native shell of a HAP: the ArkTS page and its XComponents, the C++ that
@@ -22,6 +23,29 @@ import (
 //go:embed all:shell
 var shellFS embed.FS
 
+
+// writeHost copies the host's own files — the pages, the module they import
+// and the C++ — over the shell's, so that there is one copy of them: the one
+// in internal/mobile/openharmony, which go generate keeps current.
+func writeHost(dest string) error {
+	return fs.WalkDir(openharmony.Entry, "entry", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dest, path)
+		if d.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		data, err := fs.ReadFile(openharmony.Entry, path)
+		if err != nil {
+			return err
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return err
+		}
+		return os.WriteFile(target, data, 0o644)
+	})
+}
 
 // hapShell is what every HAP project has, by which one is known.
 const hapShell = "entry/src/main/cpp/CMakeLists.txt"
@@ -100,7 +124,9 @@ func ohosWriteShell(dest, bundle, label, version, icon string) error {
 			return err
 		}
 	}
-	return nil
+	// The host is one copy, of the package that holds it: written last, so
+	// that the shell's scaffolding and the host's files are one project.
+	return writeHost(dest)
 }
 
 // ohosWriteIcon puts the app's icon where the shell shows it: a layered icon

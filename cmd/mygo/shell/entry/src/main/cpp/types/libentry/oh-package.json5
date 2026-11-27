@@ -1,6 +1,0 @@
-{
-  "name": "libentry.so",
-  "types": "./Index.d.ts",
-  "version": "0.1.0",
-  "description": "MyGo host module: starts the Go app and forwards the XComponent surface"
-}
