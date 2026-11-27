@@ -1697,17 +1697,17 @@ export class Host extends HostStubs {
 
   // touchPixels is a finger of the surface, in its pixels: Go lays out in
   // DIPs.
-  touchPixels(id: number, phase: string, x: number, y: number): void {
+  touchPixels(id: number, phase: string, kind: string, pointer: number, x: number, y: number): void {
     const scale = this.scaleOf.get(id) ?? this.scale;
     const s = scale > 0 ? scale : 1;
-    this.touch(id, x / s, y / s, phase);
+    this.touch(id, pointer, kind, x / s, y / s, phase);
   }
 
-  touch(id: number, x: number, y: number, phase: string): void {
+  touch(id: number, pointer: number, kind: string, x: number, y: number, phase: string): void {
     if (id !== 0) {
       // Seconds, as Go measures a tap's double and a finger's speed.
       const now = Date.now() / 1000;
-      this.send(Event.touch(id, 0, phase, 'touch', x, y, 1, 0, now));
+      this.send(Event.touch(id, pointer, phase, kind, x, y, 1, 0, now));
     }
   }
 

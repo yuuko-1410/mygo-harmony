@@ -212,23 +212,6 @@ void DispatchTouchEvent(OH_NativeXComponent *component, void *window) {
     if (OH_NativeXComponent_GetTouchEvent(component, window, &te) != 0) {
         return;
     }
-    const char *phase = nullptr;
-    switch (te.type) {
-        case OH_NATIVEXCOMPONENT_DOWN:
-            phase = "down";
-            break;
-        case OH_NATIVEXCOMPONENT_MOVE:
-            phase = "move";
-            break;
-        case OH_NATIVEXCOMPONENT_UP:
-            phase = "up";
-            break;
-        case OH_NATIVEXCOMPONENT_CANCEL:
-            phase = "cancel";
-            break;
-        default:
-            return;
-    }
     windowHost host;
     auto hit = g_hosts.find(windowOf(component));
     if (hit != g_hosts.end()) {
@@ -240,27 +223,54 @@ void DispatchTouchEvent(OH_NativeXComponent *component, void *window) {
     if (te.numPoints < 1 || host.env == nullptr || host.touch == nullptr) {
         return;
     }
-    const OH_NativeXComponent_TouchPoint &p = te.touchPoints[0];
-    if (te.type != OH_NATIVEXCOMPONENT_MOVE) {
-        LOGI("MYGO touch w%{public}d %{public}s at %{public}d,%{public}d", windowOf(component), phase,
-             static_cast<int>(p.x), static_cast<int>(p.y));
-    }
+    // A mouse's press is not a finger's: it has buttons and a wheel, and the
+    // content draws its hover. The rest are fingers, each its own pointer,
+    // as two of them make a pinch.
+    // The header has no source tool: a mouse's press is the pointer that
+    // comes without a finger's size, and one point that stays one.
+    const char *kind = (te.numPoints == 1 && te.touchPoints[0].size == 0) ? "mouse" : "touch";
     napi_handle_scope scope;
-    if (napi_open_handle_scope(g_env, &scope) != napi_ok) {
+    if (napi_open_handle_scope(host.env, &scope) != napi_ok) {
         return;
     }
-    napi_value cb = nullptr;
-    napi_value global = nullptr;
-    napi_value result = nullptr;
-    napi_value argv[4] = {nullptr, nullptr, nullptr, nullptr};
-    napi_create_int32(host.env, windowOf(component), &argv[0]);
-    napi_create_string_utf8(host.env, phase, NAPI_AUTO_LENGTH, &argv[1]);
-    napi_create_double(host.env, p.x, &argv[2]);
-    napi_create_double(host.env, p.y, &argv[3]);
-    napi_get_reference_value(host.env, host.touch, &cb);
-    napi_get_global(host.env, &global);
-    if (cb != nullptr) {
-        napi_call_function(host.env, global, cb, 4, argv, &result);
+    for (int i = 0; i < te.numPoints; i++) {
+        const OH_NativeXComponent_TouchPoint &p = te.touchPoints[i];
+        const char *phase = nullptr;
+        switch (p.type) {
+            case OH_NATIVEXCOMPONENT_DOWN:
+                phase = "down";
+                break;
+            case OH_NATIVEXCOMPONENT_MOVE:
+                phase = "move";
+                break;
+            case OH_NATIVEXCOMPONENT_UP:
+                phase = "up";
+                break;
+            case OH_NATIVEXCOMPONENT_CANCEL:
+                phase = "cancel";
+                break;
+            default:
+                continue;
+        }
+        if (p.type != OH_NATIVEXCOMPONENT_MOVE) {
+            LOGI("MYGO touch w%{public}d %{public}d %{public}s at %{public}d,%{public}d", windowOf(component),
+                 static_cast<int>(p.id), phase, static_cast<int>(p.x), static_cast<int>(p.y));
+        }
+        napi_value cb = nullptr;
+        napi_value global = nullptr;
+        napi_value result = nullptr;
+        napi_value argv[6] = {nullptr, nullptr, nullptr, nullptr, nullptr, nullptr};
+        napi_create_int32(host.env, windowOf(component), &argv[0]);
+        napi_create_string_utf8(host.env, phase, NAPI_AUTO_LENGTH, &argv[1]);
+        napi_create_string_utf8(host.env, kind, NAPI_AUTO_LENGTH, &argv[2]);
+        napi_create_int32(host.env, static_cast<int>(p.id), &argv[3]);
+        napi_create_double(host.env, p.x, &argv[4]);
+        napi_create_double(host.env, p.y, &argv[5]);
+        napi_get_reference_value(host.env, host.touch, &cb);
+        napi_get_global(host.env, &global);
+        if (cb != nullptr) {
+            napi_call_function(host.env, global, cb, 6, argv, &result);
+        }
     }
     napi_close_handle_scope(host.env, scope);
 }

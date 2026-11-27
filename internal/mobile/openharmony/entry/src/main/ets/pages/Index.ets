@@ -71,7 +71,13 @@ struct Index {
         this.inputHeight = host.inputHeight;
         this.inputText = host.inputText;
         if (this.inputActive) {
-          this.getUIContext().getFocusController().requestFocus('mygoInput');
+          // The field may not be in the tree yet, or not yet shown: taking
+          // the focus of one that is not throws, and takes the app with it.
+          try {
+            this.getUIContext().getFocusController().requestFocus('mygoInput');
+          } catch (e) {
+            console.info(`mygo: focus: ${e}`);
+          }
         }
       }
       // Go draws at the rate it asks for while frames follow each other.
@@ -166,8 +172,8 @@ struct Index {
                 (id: number, handle: number, width: number, height: number, scale: number): void => {
                   host.surface(id, handle, width, height, scale === 1 ? host.scale : scale);
                 },
-                (id: number, phase: string, x: number, y: number): void => {
-                  host.touchPixels(id, phase, x, y);
+                (id: number, phase: string, kind: string, pointer: number, x: number, y: number): void => {
+                  host.touchPixels(id, phase, kind, pointer, x, y);
                 });
               native.event(Event.active(true));
               return;
@@ -184,8 +190,8 @@ struct Index {
               (): void => {
                 native.drain();
               },
-              (id: number, phase: string, x: number, y: number): void => {
-                host.touchPixels(id, phase, x, y);
+              (id: number, phase: string, kind: string, pointer: number, x: number, y: number): void => {
+                host.touchPixels(id, phase, kind, pointer, x, y);
               });
             // The page's component draws for the app's own window, which Go
             // names when it makes it (createWindow binds it then).
@@ -242,7 +248,7 @@ struct Index {
         .position({ x: this.inputActive ? this.inputX : -4000, y: this.inputActive ? this.inputY : -4000 })
         .width(this.inputActive && this.inputWidth > 0 ? this.inputWidth : 1)
         .height(this.inputActive && this.inputHeight > 0 ? this.inputHeight : 1)
-        .enabled(this.inputActive)
+
         .hitTestBehavior(this.inputActive ? HitTestMode.Default : HitTestMode.None)
         .backgroundColor('#00000000')
         // The app draws the text and the caret: the field only takes the
