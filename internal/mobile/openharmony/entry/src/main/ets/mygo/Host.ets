@@ -1323,6 +1323,11 @@ export class Host extends HostStubs {
       while (this.audioPending.length > limit) {
         this.audioPending.shift();
       }
+      // Go's writer waits for the output to take each buffer: a buffer that
+      // waits for the renderer's birth is taken by the open, so the wait
+      // ends here, once per write — a write no one answers holds the
+      // player's thread for its whole second, and the player skips.
+      this.audioDone();
       return r;
     }
     this.writeAudio(samples);
@@ -1345,6 +1350,7 @@ export class Host extends HostStubs {
   private writeAudio(samples: Uint8Array): void {
     const renderer = this.renderer;
     if (renderer === null || samples.length === 0) {
+      this.audioDone();
       return;
     }
     const buf = samples.buffer.slice(0) as ArrayBuffer;
