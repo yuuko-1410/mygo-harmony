@@ -186,16 +186,39 @@ export class Host extends HostStubs {
 
   // startInstance starts the app again, as the window it draws: an instance
   // of the ability is a window of its own, with a task entry and a focus.
+  private startedWindows: Set<number> = new Set();
+
   private startInstance(id: number): void {
     const ctx = this.ctx as common.UIAbilityContext;
     if (ctx === null) {
       console.error(`mygo: no ability for window ${id}`);
       return;
     }
+    // Once per window, whatever the system makes of the key: a window of the
+    // app's that is there is not made again.
+    if (this.startedWindows.has(id)) {
+      ctx.startAbility({
+        bundleName: ctx.abilityInfo.bundleName,
+        abilityName: ctx.abilityInfo.name,
+        parameters: {
+          mygoWindow: id,
+          instanceKey: `mygo-${id}`,
+          'ohos.ability.params.instanceKey': `mygo-${id}`,
+        },
+      }).catch(() => {});
+      return;
+    }
+    this.startedWindows.add(id);
     ctx.startAbility({
       bundleName: ctx.abilityInfo.bundleName,
       abilityName: ctx.abilityInfo.name,
-      parameters: { mygoWindow: id, instanceKey: `mygo-${id}` },
+      // The key the system keeps one instance of the app for this window:
+      // the doc's name, and the one the ability manager reads.
+      parameters: {
+        mygoWindow: id,
+        instanceKey: `mygo-${id}`,
+        'ohos.ability.params.instanceKey': `mygo-${id}`,
+      },
     }).catch((e: BusinessError) => {
       console.error(`mygo: window ${id}: ${e.code} ${e.message}`);
     });
