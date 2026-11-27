@@ -37,6 +37,7 @@ struct Index {
 
   aboutToAppear(): void {
     this.mygoWindow = LocalStorage.getShared().get<number>('mygoWindow') ?? 0;
+    host.pageWindow = this.mygoWindow;
     host.send = (buf: Uint8Array): void => {
       native.event(buf);
     };

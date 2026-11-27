@@ -117,9 +117,14 @@ export class Host extends HostStubs {
   // mainWindow is the window Go made first: the app's own, as Android's is
   // the Activity's.
   mainWindowId: number = 0;
+  // Where the app's own files live, which the windows share.
+  private filesDir: string = getContext().filesDir;
+  // The window this page draws: 0 for the app's own.
+  pageWindow: number = 0;
   private wanted: boolean = false;
   // The windows that asked for a frame, each for itself.
   private wantedWindows: Set<number> = new Set();
+  private ticks: number = 0;
   // The surface, which may come before the window Go asks for.
   private handle: number = 0;
   private width: number = 0;
@@ -166,10 +171,14 @@ export class Host extends HostStubs {
       this.windowSize();
     }
     if (this.surfaceWindows.has(c.id)) {
-      // A window of the app's is an instance: one that is not made yet is
-      // started, and one that is (Settings opened again) is brought to the
-      // front by the same start, the instance keeping its key.
+      const made = !this.pendingWindows.has(c.id) && this.startedWindows.has(c.id);
       this.pendingWindows.delete(c.id);
+      if (made) {
+        // The window is there: its instance is a VM of its own, so it is
+        // asked, through a file of the app's, to come to the front.
+        this.requestRaise(c.id);
+        return;
+      }
       this.startInstance(c.id);
       return;
     }
@@ -187,6 +196,37 @@ export class Host extends HostStubs {
   // startInstance starts the app again, as the window it draws: an instance
   // of the ability is a window of its own, with a task entry and a focus.
   private startedWindows: Set<number> = new Set();
+
+  private raisePath(id: number): string {
+    return `${this.filesDir}/raise-${id}`;
+  }
+
+  // requestRaise asks the instance of a window that exists to come to the
+  // front: instances are VMs of their own, and the only thing they share is
+  // the app's files.
+  private requestRaise(id: number): void {
+    try {
+      const f = fs.openSync(this.raisePath(id), fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
+      fs.writeSync(f.fd, `${Date.now()}`);
+      fs.closeSync(f);
+    } catch (e) {
+      console.error(`mygo: raise ${id}: ${e}`);
+    }
+  }
+
+  // checkRaise is a window's instance finding that it was asked for.
+  private checkRaise(id: number): boolean {
+    const path = this.raisePath(id);
+    try {
+      if (!fs.accessSync(path)) {
+        return false;
+      }
+      fs.unlinkSync(path);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
 
   private startInstance(id: number): void {
     const ctx = this.ctx as common.UIAbilityContext;
@@ -1709,7 +1749,17 @@ export class Host extends HostStubs {
 
   // tick runs at the display's refreshes: a frame Go asked for, or none.
   tick(): void {
-    // The windows of other instances queue their events: they run here,
+    // A window of its own comes to the front when asked for.
+    this.ticks++;
+    if (this.pageWindow !== 0 && this.ticks % 15 === 0 && this.checkRaise(this.pageWindow)) {
+      const win = this.sysWindow;
+      if (win !== null) {
+        win.showWindow().catch((e: BusinessError) => {
+          console.error(`mygo: raise: ${e.message}`);
+        });
+      }
+    }
+: they run here,
     // where Go runs, at this frame.
     this.pump();
     this.readClipboard();
